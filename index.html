@@ -13,13 +13,18 @@
 <body>
 <div id="app">
   <header>
-    <div class="brand">S33 - Prisma <span class="sub">polyphonic sampler · sequencer</span></div>
+    <div class="brand">S33 - Prisma <span class="sub">polyphonic sampler · sequencer · fx</span></div>
     <div class="transport">
       <button id="play" class="tbtn" title="Play / Stop (spazio)">▶</button>
       <div class="field" id="bpmField" title="Trascina o doppio clic per scrivere"><label>BPM</label><span id="bpm">120</span></div>
       <div class="field" id="swingField" title="Trascina"><label>SWING</label><span id="swing">50%</span></div>
       <button id="fill" class="tbtn small" title="Tieni premuto ` per un fill momentaneo">FILL</button>
       <button id="rec" class="tbtn small rec" title="Registrazione live dalla tastiera (R)">REC</button>
+    </div>
+    <div class="transport">
+      <div class="field" id="rootField" title="Tonalità (trascina)"><label>KEY</label><span id="keyRoot">C</span></div>
+      <div class="field wide" id="scaleField" title="Scala (trascina)"><label>SCALE</label><span id="keyScale">CHROMATIC</span></div>
+      <button id="snap" class="tbtn small" title="Porta le note suonate sulla scala">SNAP</button>
     </div>
     <div class="io">
       <span id="midiStatus" class="midi off">MIDI —</span>
@@ -44,6 +49,15 @@
     </section>
 
     <aside id="pool">
+      <div class="poolHead">RECORDER</div>
+      <div class="recbox">
+        <div class="seg full" id="recSrc"><button data-s="main">MAIN</button><button data-s="in">INPUT</button></div>
+        <select id="recDev"></select>
+        <div class="seg full" id="recLen"><button data-b="0">FREE</button><button data-b="1">1</button><button data-b="2">2</button><button data-b="4">4</button><button data-b="8">8 BAR</button></div>
+        <div class="rrow"><button id="recMon" class="tbtn small ghost" title="Ascolta l'ingresso">MON</button><button id="recNorm" class="tbtn small ghost" title="Normalizza la registrazione">NORM</button><span id="recStatus"></span></div>
+        <div class="rmeter"><div id="recMeterBar"></div></div>
+        <button id="recGo" class="recgo">● CAMPIONA</button>
+      </div>
       <div class="poolHead">SAMPLE</div>
       <div class="drop" id="dropSamples">Trascina qui file audio<br><small>ognuno diventa un campione</small></div>
       <ul id="sampleList"></ul>
@@ -58,6 +72,7 @@
       <div class="pages" id="pages"></div>
       <div class="field" id="lenField" title="Lunghezza della traccia (trascina)"><label>LEN</label><span id="trackLen">16</span></div>
       <button id="follow" class="tbtn small on" title="La pagina segue la riproduzione">FOLLOW</button>
+      <button id="kbd" class="tbtn small" title="I 16 tasti diventano una tastiera nella scala (Q)">KEYS</button>
       <span class="hint" id="hint">clic = trig · tieni premuto o ⇧clic = seleziona step per p-lock · doppio clic su una manopola = reset</span>
       <button id="clearLocks" class="tbtn small ghost">CANC. LOCK</button>
       <button id="clearTrack" class="tbtn small ghost">CANC. TRACCIA</button>
@@ -76,6 +91,7 @@
 <script src="js/factory.js"></script>
 <script src="js/seq.js"></script>
 <script src="js/storage.js"></script>
+<script src="js/recorder.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
