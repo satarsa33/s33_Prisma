@@ -69,14 +69,52 @@
 
     async init() {
       if (this.node) return;
-      const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
-      await this.ctx.audioWorklet.addModule(url);
-      this.node = new AudioWorkletNode(this.ctx, 'prisma-rec', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 2, channelCountMode: 'explicit' });
+      try {
+        const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
+        await this.ctx.audioWorklet.addModule(url);
+        this.node = new AudioWorkletNode(this.ctx, 'prisma-rec', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 2, channelCountMode: 'explicit' });
+        this.node.port.onmessage = (e) => this._msg(e.data);
+      } catch (e) {
+        // aperta come file locale: l'AudioWorklet non si carica, si usa un ScriptProcessor
+        this.node = this._fallbackNode();
+      }
       const sink = this.ctx.createGain();
       sink.gain.value = 0;
       this.node.connect(sink).connect(this.ctx.destination);
-      this.node.port.onmessage = (e) => this._msg(e.data);
       this._connectSource();
+    }
+
+    _fallbackNode() {
+      const sp = this.ctx.createScriptProcessor(2048, 2, 2);
+      const sr = this.ctx.sampleRate;
+      const st = { state: 'idle', L: [], R: [], n: 0, frames: 0, at: 0, pk: 0, blocks: 0 };
+      const finish = () => { st.state = 'idle'; this._msg({ done: true, L: st.L, R: st.R, n: st.n }); st.L = []; st.R = []; };
+      sp.port = {
+        postMessage: (m) => {
+          if (m.cmd === 'start') Object.assign(st, { at: m.at, frames: m.frames, L: [], R: [], n: 0, state: 'wait' });
+          else if (m.cmd === 'stop') { if (st.state !== 'idle') finish(); }
+          else if (m.cmd === 'cancel') Object.assign(st, { state: 'idle', L: [], R: [] });
+        },
+      };
+      sp.onaudioprocess = (e) => {
+        const l = e.inputBuffer.getChannelData(0), r = e.inputBuffer.getChannelData(1);
+        for (let i = 0; i < l.length; i++) { const a = Math.abs(l[i]); if (a > st.pk) st.pk = a; }
+        if (++st.blocks >= 2) { this._msg({ meter: st.pk, state: st.state, n: st.n }); st.pk = 0; st.blocks = 0; }
+        let from = 0;
+        if (st.state === 'wait') {
+          const off = Math.round((st.at - e.playbackTime) * sr);
+          if (off >= l.length) return;
+          from = Math.max(0, off);
+          st.state = 'rec';
+        }
+        if (st.state === 'rec') {
+          let take = l.length - from;
+          if (st.n + take > st.frames) take = st.frames - st.n;
+          if (take > 0) { st.L.push(l.slice(from, from + take)); st.R.push(r.slice(from, from + take)); st.n += take; }
+          if (st.n >= st.frames) finish();
+        }
+      };
+      return sp;
     }
 
     async setSource(src) {
