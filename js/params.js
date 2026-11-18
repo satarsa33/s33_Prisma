@@ -84,6 +84,17 @@
     pan: { label: 'PAN', min: -64, max: 63, step: 1, def: 0, fmt: (v) => (v === 0 ? 'C' : v < 0 ? 'L' + -v : 'R' + v), lock: true },
     vol: { label: 'VOL', min: 0, max: 127, step: 1, def: 100, lock: true },
     avel: { label: 'VEL>AMP', min: 0, max: 127, step: 1, def: 90, lock: true },
+    // FX per voce (bloccabili) + uscita di traccia
+    drive: { label: 'DRIVE', min: 0, max: 127, step: 1, def: 0, lock: true },
+    bits: { label: 'BITS', min: 0, max: 15, step: 1, def: 0, fmt: (v) => (v === 0 ? 'OFF' : 17 - v + 'bit'), lock: true },
+    sdly: { label: 'DELAY', min: 0, max: 127, step: 1, def: 0, lock: true },
+    srev: { label: 'REVERB', min: 0, max: 127, step: 1, def: 0, lock: true },
+    scho: { label: 'CHORUS', min: 0, max: 127, step: 1, def: 0, lock: true },
+    out: { label: 'OUT', min: 0, max: 2, step: 1, def: 0, fmt: (v) => ['MAIN', 'BUS 1', 'BUS 2'][v] },
+    // chord mode (impostazioni di traccia)
+    chord: { label: 'CHORD', min: 0, max: 0, step: 1, def: 0, dynamic: true, fmt: (v) => S33.CHORDS[v].label },
+    inv: { label: 'INV', min: -3, max: 3, step: 1, def: 0, fmt: (v) => (v > 0 ? '+' : '') + v },
+    voic: { label: 'VOICING', min: 0, max: 3, step: 1, def: 0, fmt: (v) => ['CLOSE', 'OPEN', 'DROP2', 'WIDE'][v] },
     // LFO (solo DEPTH bloccabile)
     lwave: { label: 'WAVE', min: 0, max: S33.LWAVES.length - 1, step: 1, def: 0, fmt: (v) => S33.LWAVES[v] },
     lsync: { label: 'SYNC', min: 0, max: 1, step: 1, def: 1, fmt: onOff },
@@ -93,13 +104,196 @@
   };
 
   S33.PAGES = {
-    TRIG: ['note', 'vel', 'len', 'micro', 'cond', null, null, null],
+    TRIG: ['note', 'vel', 'len', 'micro', 'cond', 'chord', 'inv', 'voic'],
     SRC: ['smp', 'tune', 'fine', 'start', 'end', 'loop', 'rev', 'level'],
     FLTR: ['ftype', 'freq', 'reso', 'fenv', 'fatk', 'fdec', 'ktrk', 'fvel'],
     AMP: ['atk', 'dec', 'sus', 'rel', 'pan', 'vol', 'avel', null],
+    FX: ['drive', 'bits', 'sdly', 'srev', 'scho', 'out', null, null],
     LFO: ['lwave', 'lsync', 'lrate', 'ldest', 'ldep', null, null, null],
   };
   S33.PAGE_NAMES = Object.keys(S33.PAGES);
+
+  /* ---------- scale ---------- */
+  S33.SCALES = [
+    ['CHROMATIC', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]],
+    ['MAJOR', [0, 2, 4, 5, 7, 9, 11]],
+    ['MINOR', [0, 2, 3, 5, 7, 8, 10]],
+    ['HARM MIN', [0, 2, 3, 5, 7, 8, 11]],
+    ['MEL MIN', [0, 2, 3, 5, 7, 9, 11]],
+    ['DORIAN', [0, 2, 3, 5, 7, 9, 10]],
+    ['PHRYGIAN', [0, 1, 3, 5, 7, 8, 10]],
+    ['LYDIAN', [0, 2, 4, 6, 7, 9, 11]],
+    ['MIXOLYD', [0, 2, 4, 5, 7, 9, 10]],
+    ['LOCRIAN', [0, 1, 3, 5, 6, 8, 10]],
+    ['MAJ PENTA', [0, 2, 4, 7, 9]],
+    ['MIN PENTA', [0, 3, 5, 7, 10]],
+    ['BLUES', [0, 3, 5, 6, 7, 10]],
+    ['MAJ BLUES', [0, 2, 3, 4, 7, 9]],
+    ['WHOLE TONE', [0, 2, 4, 6, 8, 10]],
+    ['DIM HW', [0, 1, 3, 4, 6, 7, 9, 10]],
+    ['DIM WH', [0, 2, 3, 5, 6, 8, 9, 11]],
+    ['PHRYG DOM', [0, 1, 4, 5, 7, 8, 10]],
+    ['LYD DOM', [0, 2, 4, 6, 7, 9, 10]],
+    ['ALTERED', [0, 1, 3, 4, 6, 8, 10]],
+    ['HUNG MIN', [0, 2, 3, 6, 7, 8, 11]],
+    ['DBL HARM', [0, 1, 4, 5, 7, 8, 11]],
+    ['NEAPOL MIN', [0, 1, 3, 5, 7, 8, 11]],
+    ['BEBOP DOM', [0, 2, 4, 5, 7, 9, 10, 11]],
+    ['HIRAJOSHI', [0, 2, 3, 7, 8]],
+    ['IN SEN', [0, 1, 5, 7, 10]],
+    ['IWATO', [0, 1, 5, 6, 10]],
+    ['EGYPTIAN', [0, 2, 5, 7, 10]],
+    ['PELOG', [0, 1, 3, 7, 8]],
+    ['PROMETHEUS', [0, 2, 4, 6, 9, 10]],
+  ];
+  S33.NOTE_NAMES = NAMES;
+
+  // nota → nota più vicina della scala (a parità, verso il basso)
+  S33.snapToScale = (n, root, scaleIdx) => {
+    const sc = S33.SCALES[scaleIdx][1];
+    if (sc.length === 12) return n;
+    for (let d = 0; d < 12; d++) {
+      for (const s of [-d, d]) {
+        const m = n + s;
+        if (sc.includes((((m - root) % 12) + 12) % 12)) return m;
+      }
+    }
+    return n;
+  };
+  // n-esimo grado della scala a partire da una nota (anche oltre l'ottava)
+  S33.scaleDegree = (base, steps, root, scaleIdx) => {
+    const sc = S33.SCALES[scaleIdx][1];
+    let n = base, c = 0;
+    const dir = steps >= 0 ? 1 : -1;
+    while (c < Math.abs(steps)) {
+      n += dir;
+      if (sc.includes((((n - root) % 12) + 12) % 12)) c++;
+    }
+    return n;
+  };
+
+  /* ---------- accordi ---------- */
+  // iv: intervalli fissi in semitoni · deg: gradi della scala (diatonici)
+  S33.CHORDS = [
+    { label: 'OFF' },
+    { label: 'MAJ', iv: [0, 4, 7] },
+    { label: 'MIN', iv: [0, 3, 7] },
+    { label: '7', iv: [0, 4, 7, 10] },
+    { label: 'MAJ7', iv: [0, 4, 7, 11] },
+    { label: 'MIN7', iv: [0, 3, 7, 10] },
+    { label: 'M7b5', iv: [0, 3, 6, 10] },
+    { label: 'SUS2', iv: [0, 2, 7] },
+    { label: 'SUS4', iv: [0, 5, 7] },
+    { label: 'DIM', iv: [0, 3, 6] },
+    { label: 'AUG', iv: [0, 4, 8] },
+    { label: '6', iv: [0, 4, 7, 9] },
+    { label: 'MIN6', iv: [0, 3, 7, 9] },
+    { label: '9', iv: [0, 4, 7, 10, 14] },
+    { label: 'MAJ9', iv: [0, 4, 7, 11, 14] },
+    { label: 'MIN9', iv: [0, 3, 7, 10, 14] },
+    { label: 'ADD9', iv: [0, 4, 7, 14] },
+    { label: 'MIN11', iv: [0, 3, 7, 10, 14, 17] },
+    { label: '5', iv: [0, 7] },
+    { label: 'OCT', iv: [0, 12] },
+    { label: 'SC TRIAD', deg: [0, 2, 4] },
+    { label: 'SC 7TH', deg: [0, 2, 4, 6] },
+    { label: 'SC 9TH', deg: [0, 2, 4, 6, 8] },
+    { label: 'SC SUS4', deg: [0, 3, 4] },
+    { label: 'SC QUART', deg: [0, 3, 6] },
+  ];
+
+  // costruisce l'accordo per una nota secondo le impostazioni della traccia
+  S33.buildChord = (note, params, root, scaleIdx) => {
+    const ch = S33.CHORDS[params.chord || 0];
+    if (!ch || (!ch.iv && !ch.deg)) return [note];
+    let notes;
+    if (ch.deg) {
+      const sc = S33.SCALES[scaleIdx][1];
+      if (sc.length >= 12) notes = [0, 4, 7, 11, 14].slice(0, ch.deg.length).map((i) => note + i);
+      else {
+        const base = S33.snapToScale(note, root, scaleIdx);
+        notes = ch.deg.map((d) => S33.scaleDegree(base, d, root, scaleIdx));
+      }
+    } else notes = ch.iv.map((i) => note + i);
+    // rivolti
+    let inv = params.inv || 0;
+    while (inv > 0) { notes.push(notes.shift() + 12); inv--; }
+    while (inv < 0) { notes.unshift(notes.pop() - 12); inv++; }
+    notes.sort((a, b) => a - b);
+    // disposizione
+    switch (params.voic) {
+      case 1: if (notes.length > 2) notes[1] += 12; break; // open
+      case 2: if (notes.length > 3) notes[notes.length - 2] -= 12; break; // drop 2
+      case 3: notes.unshift(notes[0] - 12); if (notes.length > 3) notes[notes.length - 1] += 12; break; // wide
+    }
+    return [...new Set(notes.map((n) => S33.clamp(n, 0, 127)))].sort((a, b) => a - b).slice(0, 8);
+  };
+
+  /* ---------- tracce ausiliarie: bus, effetti in mandata, mix ---------- */
+  const DLY_T = [0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 12, 16];
+  const DLY_L = ['1/32', '1/32.', '1/16', '1/16.', '1/8', '1/8.', '1/4', '1/4.', '1/2', '1/2.', '1/1'];
+  S33.DLY_T = DLY_T;
+  S33.AUXP = {
+    bfilt: { label: 'FILTER', min: -64, max: 63, step: 1, def: 0, fmt: (v) => (v === 0 ? 'OFF' : v < 0 ? 'LP ' + -v : 'HP ' + v) },
+    breso: { label: 'RESO', min: 0, max: 127, step: 1, def: 10 },
+    bdrive: { label: 'DRIVE', min: 0, max: 127, step: 1, def: 0 },
+    bcomp: { label: 'COMP', min: 0, max: 127, step: 1, def: 0 },
+    bsA: { label: 'DELAY', min: 0, max: 127, step: 1, def: 0 },
+    bsB: { label: 'REVERB', min: 0, max: 127, step: 1, def: 0 },
+    bsC: { label: 'CHORUS', min: 0, max: 127, step: 1, def: 0 },
+    blvl: { label: 'LEVEL', min: 0, max: 127, step: 1, def: 100 },
+
+    dtime: { label: 'TIME', min: 0, max: DLY_T.length - 1, step: 1, def: 5, fmt: (v) => DLY_L[v] },
+    dfb: { label: 'FDBK', min: 0, max: 127, step: 1, def: 60 },
+    dpp: { label: 'PINGPONG', min: 0, max: 1, step: 1, def: 1, fmt: onOff },
+    dhp: { label: 'HP', min: 0, max: 127, step: 1, def: 30, fmt: fmtHz },
+    dlp: { label: 'LP', min: 0, max: 127, step: 1, def: 105, fmt: fmtHz },
+    drev: { label: '→REV', min: 0, max: 127, step: 1, def: 20 },
+    dlvl: { label: 'LEVEL', min: 0, max: 127, step: 1, def: 100 },
+
+    rpre: { label: 'PRE', min: 0, max: 127, step: 1, def: 10, fmt: (v) => Math.round((v / 127) * 200) + 'ms' },
+    rsize: { label: 'DECAY', min: 0, max: 127, step: 1, def: 70, fmt: (v) => S33.revSecs(v).toFixed(1) + 's' },
+    rdamp: { label: 'DAMP', min: 0, max: 127, step: 1, def: 40 },
+    rhp: { label: 'HP', min: 0, max: 127, step: 1, def: 35, fmt: fmtHz },
+    rlvl: { label: 'LEVEL', min: 0, max: 127, step: 1, def: 100 },
+
+    crate: { label: 'RATE', min: 0, max: 127, step: 1, def: 40, fmt: (v) => S33.choHz(v).toFixed(2) + 'Hz' },
+    cdep: { label: 'DEPTH', min: 0, max: 127, step: 1, def: 60 },
+    cwid: { label: 'WIDTH', min: 0, max: 127, step: 1, def: 110 },
+    cfb: { label: 'FDBK', min: 0, max: 127, step: 1, def: 20 },
+    crev: { label: '→REV', min: 0, max: 127, step: 1, def: 0 },
+    clvl: { label: 'LEVEL', min: 0, max: 127, step: 1, def: 100 },
+
+    m0: { label: 'T1', min: 0, max: 127, step: 1, def: 100 },
+    m1: { label: 'T2', min: 0, max: 127, step: 1, def: 100 },
+    m2: { label: 'T3', min: 0, max: 127, step: 1, def: 100 },
+    m3: { label: 'T4', min: 0, max: 127, step: 1, def: 100 },
+    mmst: { label: 'MASTER', min: 0, max: 127, step: 1, def: 100 },
+    mlim: { label: 'LIMITER', min: 0, max: 1, step: 1, def: 1, fmt: onOff },
+    mdrv: { label: 'M.DRIVE', min: 0, max: 127, step: 1, def: 0 },
+  };
+  S33.revSecs = (v) => 0.3 + Math.pow(v / 127, 2) * 9.7;
+  S33.choHz = (v) => 0.05 * Math.pow(100, v / 127);
+
+  // id → titolo, gruppo dati nel progetto, chiavi delle 8 manopole
+  S33.AUX = {
+    bus1: { title: 'BUS 1', group: 'bus0', keys: ['bfilt', 'breso', 'bdrive', 'bcomp', 'bsA', 'bsB', 'bsC', 'blvl'] },
+    bus2: { title: 'BUS 2', group: 'bus1', keys: ['bfilt', 'breso', 'bdrive', 'bcomp', 'bsA', 'bsB', 'bsC', 'blvl'] },
+    dly: { title: 'DELAY', group: 'dly', keys: ['dtime', 'dfb', 'dpp', 'dhp', 'dlp', 'drev', null, 'dlvl'] },
+    rev: { title: 'REVERB', group: 'rev', keys: ['rpre', 'rsize', 'rdamp', 'rhp', null, null, null, 'rlvl'] },
+    cho: { title: 'CHORUS', group: 'cho', keys: ['crate', 'cdep', 'cwid', 'cfb', 'crev', null, null, 'clvl'] },
+    mix: { title: 'MIX', group: 'mix', keys: ['m0', 'm1', 'm2', 'm3', null, 'mdrv', 'mlim', 'mmst'] },
+  };
+  S33.AUX_IDS = Object.keys(S33.AUX);
+  S33.defaultFx = () => {
+    const fx = {};
+    for (const id of S33.AUX_IDS) {
+      const g = {};
+      S33.AUX[id].keys.forEach((k) => { if (k) g[k] = S33.AUXP[k].def; });
+      fx[S33.AUX[id].group] = g;
+    }
+    return fx;
+  };
 
   // indice LFO sincronizzato a partire da lrate 0..127
   S33.lsyncIndex = (v) => Math.round((v / 127) * (S33.LSYNC.length - 1));

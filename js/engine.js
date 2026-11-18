@@ -7,18 +7,35 @@
     constructor(trackCount) {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive', sampleRate: 48000 });
       const ctx = this.ctx;
+      // master: drive → (limiter | diretto) → uscita
       this.master = ctx.createGain();
-      this.master.gain.value = 0.8;
+      this.mDrive = ctx.createWaveShaper();
+      this.mDrive.oversample = '2x';
       this.limiter = ctx.createDynamicsCompressor();
       this.limiter.threshold.value = -4;
       this.limiter.knee.value = 2;
       this.limiter.ratio.value = 16;
       this.limiter.attack.value = 0.002;
       this.limiter.release.value = 0.12;
-      this.master.connect(this.limiter).connect(ctx.destination);
+      this.limOn = ctx.createGain();
+      this.limOff = ctx.createGain();
+      this.limOff.gain.value = 0;
+      this.out = ctx.createGain();
+      this.out.gain.value = 0.8;
+      this.master.connect(this.mDrive);
+      this.mDrive.connect(this.limiter).connect(this.limOn).connect(this.out);
+      this.mDrive.connect(this.limOff).connect(this.out);
+      this.out.connect(ctx.destination);
+      this.outMeter = ctx.createAnalyser();
+      this.outMeter.fftSize = 512;
+      this.out.connect(this.outMeter);
+
       this.lfoBuffers = this._makeLfoBuffers();
+      this._buildSends();
+      this.buses = [this._makeBus(), this._makeBus()];
       this.tracks = [];
       for (let i = 0; i < trackCount; i++) this.tracks.push(this._makeTrack());
+      this.sendIns = [this.dly.in, this.rev.in, this.cho.in];
       this.pool = null; // impostato dall'app
     }
 
@@ -29,14 +46,208 @@
 
     _makeTrack() {
       const ctx = this.ctx;
-      const out = ctx.createGain();
+      const out = ctx.createGain(); // fader di traccia (MIX)
       const meter = ctx.createAnalyser();
       meter.fftSize = 256;
       out.connect(this.master);
       out.connect(meter);
       const lfoOut = ctx.createGain();
       lfoOut.gain.value = 1;
-      return { out, meter, lfoOut, lfoSrc: null, lfoWave: -1, voices: [], meterBuf: new Float32Array(256) };
+      return { out, meter, lfoOut, lfoSrc: null, lfoWave: -1, voices: [], meterBuf: new Float32Array(256), route: 0 };
+    }
+
+    // uscita di traccia: 0 = MAIN, 1 = BUS 1, 2 = BUS 2
+    setRoute(ti, r) {
+      const tr = this.tracks[ti];
+      if (tr.route === r) return;
+      tr.out.disconnect();
+      tr.out.connect(tr.meter);
+      tr.out.connect(r === 0 ? this.master : this.buses[r - 1].in);
+      tr.route = r;
+    }
+
+    _makeBus() {
+      const ctx = this.ctx;
+      const b = {};
+      b.in = ctx.createGain();
+      b.filt = ctx.createBiquadFilter();
+      b.filt.type = 'allpass';
+      b.drive = ctx.createWaveShaper();
+      b.drive.oversample = '2x';
+      b.comp = ctx.createDynamicsCompressor();
+      b.comp.threshold.value = 0;
+      b.comp.ratio.value = 4;
+      b.comp.attack.value = 0.008;
+      b.comp.release.value = 0.15;
+      b.makeup = ctx.createGain();
+      b.level = ctx.createGain();
+      b.meter = ctx.createAnalyser();
+      b.meter.fftSize = 256;
+      b.in.connect(b.filt).connect(b.drive).connect(b.comp).connect(b.makeup).connect(b.level);
+      b.level.connect(this.master);
+      b.level.connect(b.meter);
+      b.sends = [0, 1, 2].map(() => ctx.createGain());
+      b.sends.forEach((g, i) => { g.gain.value = 0; b.level.connect(g); g.connect([this.dly, this.rev, this.cho][i].in); });
+      return b;
+    }
+
+    _buildSends() {
+      const ctx = this.ctx;
+      // DELAY ping-pong con filtri nel feedback
+      const d = (this.dly = {});
+      d.in = ctx.createGain();
+      d.hp = ctx.createBiquadFilter(); d.hp.type = 'highpass';
+      d.lp = ctx.createBiquadFilter(); d.lp.type = 'lowpass';
+      d.dL = ctx.createDelay(4); d.dR = ctx.createDelay(4);
+      d.fb = ctx.createGain();
+      d.cross = ctx.createGain(); // L → R (ping-pong)
+      d.mono = ctx.createGain(); // ingresso anche a destra (no ping-pong)
+      d.merge = ctx.createChannelMerger(2);
+      d.level = ctx.createGain();
+      d.toRev = ctx.createGain();
+      d.meter = ctx.createAnalyser(); d.meter.fftSize = 256;
+      d.in.connect(d.hp).connect(d.lp);
+      d.lp.connect(d.dL);
+      d.lp.connect(d.mono).connect(d.dR);
+      d.dL.connect(d.cross).connect(d.dR);
+      d.dR.connect(d.fb).connect(d.hp);
+      d.dL.connect(d.merge, 0, 0);
+      d.dR.connect(d.merge, 0, 1);
+      d.merge.connect(d.level).connect(this.master);
+      d.level.connect(d.meter);
+
+      // REVERB a convoluzione (risposta generata)
+      const r = (this.rev = {});
+      r.in = ctx.createGain();
+      r.pre = ctx.createDelay(1);
+      r.hp = ctx.createBiquadFilter(); r.hp.type = 'highpass';
+      r.conv = ctx.createConvolver();
+      r.damp = ctx.createBiquadFilter(); r.damp.type = 'lowpass';
+      r.level = ctx.createGain();
+      r.meter = ctx.createAnalyser(); r.meter.fftSize = 256;
+      r.in.connect(r.pre).connect(r.hp).connect(r.conv).connect(r.damp).connect(r.level).connect(this.master);
+      r.level.connect(r.meter);
+      d.toRev.connect(r.in);
+      d.level.connect(d.toRev);
+
+      // CHORUS a due linee modulate
+      const c = (this.cho = {});
+      c.in = ctx.createGain();
+      c.dL = ctx.createDelay(0.1); c.dR = ctx.createDelay(0.1);
+      c.dL.delayTime.value = 0.012; c.dR.delayTime.value = 0.017;
+      c.lfo = ctx.createOscillator(); c.lfo.type = 'triangle';
+      c.lfo2 = ctx.createOscillator(); c.lfo2.type = 'triangle';
+      c.depL = ctx.createGain(); c.depR = ctx.createGain();
+      c.lfo.connect(c.depL).connect(c.dL.delayTime);
+      c.lfo2.connect(c.depR).connect(c.dR.delayTime);
+      c.fb = ctx.createGain();
+      c.merge = ctx.createChannelMerger(2);
+      c.wL = ctx.createStereoPanner(); c.wR = ctx.createStereoPanner();
+      c.level = ctx.createGain();
+      c.toRev = ctx.createGain();
+      c.meter = ctx.createAnalyser(); c.meter.fftSize = 256;
+      c.in.connect(c.dL); c.in.connect(c.dR);
+      c.dL.connect(c.fb).connect(c.in);
+      c.dL.connect(c.wL).connect(c.level);
+      c.dR.connect(c.wR).connect(c.level);
+      c.level.connect(this.master);
+      c.level.connect(c.meter);
+      c.level.connect(c.toRev).connect(r.in);
+      c.lfo.start(); c.lfo2.start();
+      this._revKey = null;
+    }
+
+    _revIR(secs) {
+      const ctx = this.ctx;
+      const sr = ctx.sampleRate;
+      const len = Math.floor(sr * (secs + 0.1));
+      const b = ctx.createBuffer(2, len, sr);
+      for (let ch = 0; ch < 2; ch++) {
+        const d = b.getChannelData(ch);
+        let lp = 0;
+        for (let i = 0; i < len; i++) {
+          const t = i / sr;
+          const env = Math.pow(10, (-3 * t) / secs); // -60 dB a "secs"
+          const fade = t < 0.004 ? t / 0.004 : 1;
+          const n = Math.random() * 2 - 1;
+          lp = lp + (n - lp) * (0.25 + 0.75 * Math.exp(-t * 1.5)); // si scurisce nel tempo
+          d[i] = lp * env * fade * (i < sr * 0.03 && Math.random() < 0.004 ? 3 : 1);
+        }
+      }
+      return b;
+    }
+
+    // applica tutti i parametri dei bus, effetti e mix
+    applyFx(fx, bpm) {
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+      const set = (param, v) => param.setTargetAtTime(v, now, 0.015);
+      const n = (v) => v / 127;
+      // mix
+      for (let i = 0; i < this.tracks.length; i++) set(this.tracks[i].out.gain, Math.pow(n(fx.mix['m' + i]), 2) * 1.6);
+      set(this.master.gain, Math.pow(n(fx.mix.mmst), 2) * 1.6);
+      this.mDrive.curve = fx.mix.mdrv ? S33.shaperCurve(fx.mix.mdrv * 0.6, 0) : null;
+      set(this.limOn.gain, fx.mix.mlim ? 1 : 0);
+      set(this.limOff.gain, fx.mix.mlim ? 0 : 1);
+      // bus
+      this.buses.forEach((b, i) => {
+        const p = fx['bus' + i];
+        if (p.bfilt === 0) b.filt.type = 'allpass';
+        else {
+          b.filt.type = p.bfilt < 0 ? 'lowpass' : 'highpass';
+          const f = p.bfilt < 0 ? 20000 * Math.pow(0.0015, -p.bfilt / 64) : 20 * Math.pow(400, p.bfilt / 63);
+          set(b.filt.frequency, S33.clamp(f, 20, 20000));
+        }
+        set(b.filt.Q, 0.5 + Math.pow(n(p.breso), 2) * 18);
+        b.drive.curve = p.bdrive ? S33.shaperCurve(p.bdrive, 0) : null;
+        set(b.comp.threshold, -n(p.bcomp) * 40);
+        set(b.makeup.gain, Math.pow(10, (n(p.bcomp) * 40 * 0.22) / 20));
+        set(b.level.gain, Math.pow(n(p.blvl), 2) * 1.6);
+        ['bsA', 'bsB', 'bsC'].forEach((k, j) => set(b.sends[j].gain, Math.pow(n(p[k]), 2)));
+      });
+      // delay
+      const d = this.dly, pd = fx.dly;
+      const t = Math.min(3.9, (S33.DLY_T[pd.dtime] * 60) / bpm / 4);
+      set(d.dL.delayTime, t);
+      set(d.dR.delayTime, t);
+      set(d.fb.gain, n(pd.dfb) * 0.95);
+      set(d.cross.gain, pd.dpp ? 1 : 0);
+      set(d.mono.gain, pd.dpp ? 0 : 1);
+      set(d.hp.frequency, S33.cutoffHz(pd.dhp));
+      set(d.lp.frequency, S33.cutoffHz(pd.dlp));
+      set(d.toRev.gain, Math.pow(n(pd.drev), 2));
+      set(d.level.gain, Math.pow(n(pd.dlvl), 2) * 1.4);
+      // reverb
+      const r = this.rev, pr = fx.rev;
+      const secs = S33.revSecs(pr.rsize);
+      const key = Math.round(secs * 20);
+      if (key !== this._revKey) { r.conv.buffer = this._revIR(secs); this._revKey = key; }
+      set(r.pre.delayTime, n(pr.rpre) * 0.2);
+      set(r.damp.frequency, 20000 * Math.pow(0.05, n(pr.rdamp)));
+      set(r.hp.frequency, S33.cutoffHz(pr.rhp));
+      set(r.level.gain, Math.pow(n(pr.rlvl), 2) * 1.2);
+      // chorus
+      const c = this.cho, pc = fx.cho;
+      set(c.lfo.frequency, S33.choHz(pc.crate));
+      set(c.lfo2.frequency, S33.choHz(pc.crate) * 1.07);
+      set(c.depL.gain, n(pc.cdep) * 0.006);
+      set(c.depR.gain, n(pc.cdep) * 0.006);
+      set(c.fb.gain, n(pc.cfb) * 0.6);
+      set(c.wL.pan, -n(pc.cwid));
+      set(c.wR.pan, n(pc.cwid));
+      set(c.toRev.gain, Math.pow(n(pc.crev), 2));
+      set(c.level.gain, Math.pow(n(pc.clvl), 2) * 1.3);
+    }
+
+    analyserLevel(an) {
+      const buf = (this._abuf = this._abuf && this._abuf.length === an.fftSize ? this._abuf : new Float32Array(an.fftSize));
+      an.getFloatTimeDomainData(buf);
+      let m = 0;
+      for (let i = 0; i < buf.length; i++) m = Math.max(m, Math.abs(buf[i]));
+      return m;
+    }
+    auxAnalyser(id) {
+      return { bus1: this.buses[0].meter, bus2: this.buses[1].meter, dly: this.dly.meter, rev: this.rev.meter, cho: this.cho.meter, mix: this.outMeter }[id];
     }
 
     // un periodo di ciascuna forma d'onda in un buffer da 1 secondo: playbackRate = Hz
@@ -199,7 +410,23 @@
       g.linearRampToValueAtTime(peakG, t + a);
       g.setTargetAtTime(sus, t + a, S33.envTime(p.dec) / 4);
 
-      src.connect(filt).connect(trem).connect(amp).connect(pan).connect(tr.out);
+      let shp = null;
+      if (p.drive > 0 || p.bits > 0) {
+        shp = ctx.createWaveShaper();
+        shp.curve = S33.shaperCurve(p.drive, p.bits);
+        shp.oversample = p.drive > 0 ? '2x' : 'none';
+        src.connect(shp).connect(filt);
+      } else src.connect(filt);
+      filt.connect(trem).connect(amp).connect(pan).connect(tr.out);
+      // mandate per voce (bloccabili per step)
+      const sends = [];
+      [p.sdly, p.srev, p.scho].forEach((v, i) => {
+        if (!v) return;
+        const sg = ctx.createGain();
+        sg.gain.value = Math.pow(v / 127, 1.5);
+        pan.connect(sg).connect(this.sendIns[i]);
+        sends.push(sg);
+      });
 
       let natEnd = Infinity;
       if (p.loop) {
@@ -215,7 +442,7 @@
       }
 
       const voice = {
-        src, filt, amp, pan, tap, trem, t, note, ti, rate, s0, s1, loop: !!p.loop, dur,
+        src, filt, amp, pan, tap, trem, shp, sends, t, note, ti, rate, s0, s1, loop: !!p.loop, dur,
         rev: !!p.rev, buffer: buf, natEnd, released: false, dead: false, rel: S33.envTime(p.rel),
       };
       if (natEnd !== Infinity && natEnd - 0.006 > t + a) {
@@ -257,6 +484,8 @@
       if (i >= 0) tr.voices.splice(i, 1);
       try {
         if (voice.tap) { this.tracks[voice.ti].lfoOut.disconnect(voice.tap); voice.tap.disconnect(); }
+        if (voice.shp) voice.shp.disconnect();
+        voice.sends.forEach((g) => g.disconnect());
         voice.src.disconnect(); voice.filt.disconnect(); voice.trem.disconnect(); voice.amp.disconnect(); voice.pan.disconnect();
       } catch (e) {}
     }
@@ -336,6 +565,26 @@
     if (lag < 0) return null;
     const f = sr / lag;
     return Math.round(69 + 12 * Math.log2(f / 440));
+  };
+
+  /* ---------- curva di saturazione + riduzione bit (cache) ---------- */
+  const curveCache = new Map();
+  S33.shaperCurve = (drive, bits) => {
+    const key = drive * 100 + bits;
+    if (curveCache.has(key)) return curveCache.get(key);
+    const N = 4096, c = new Float32Array(N);
+    const k = 1 + Math.pow(drive / 127, 2) * 30;
+    const levels = bits > 0 ? Math.pow(2, 17 - bits) / 2 : 0;
+    const norm = Math.tanh(k);
+    for (let i = 0; i < N; i++) {
+      const x = (i / (N - 1)) * 2 - 1;
+      let y = drive > 0 ? Math.tanh(k * x) / norm : x;
+      if (drive > 0) y *= 1 - 0.35 * Math.pow(drive / 127, 1.5); // compensa il volume
+      if (levels) y = Math.round(y * levels) / levels;
+      c[i] = y;
+    }
+    curveCache.set(key, c);
+    return c;
   };
 
   /* ---------- WAV: codifica 16 bit (per salvataggio progetto) ---------- */

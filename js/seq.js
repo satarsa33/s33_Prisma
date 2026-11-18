@@ -49,6 +49,7 @@
       this.playing = true;
       this.g = 0;
       this.gridT = ctx.currentTime + 0.06;
+      this.t0 = this.gridT;
       this.state = Array.from({ length: S33.TRACKS }, () => ({ pre: true }));
       this.uiQueue.length = 0;
       this.grid.length = 0;
@@ -129,6 +130,13 @@
       if (this.onStep) this.onStep(ti, time);
     }
 
+    // tempo d'inizio della prossima battuta (16 step) e relativo indice
+    nextBar() {
+      const sd = this.stepDur();
+      const g = Math.ceil(this.g / 16) * 16;
+      return { g, t: this.gridT + (g - this.g) * sd };
+    }
+
     // per la registrazione live: indice globale dello step più vicino a "adesso"
     nearestG() {
       if (!this.grid.length) return null;
@@ -200,6 +208,17 @@
     });
     p.trig.note = 60;
 
-    return { name: 'Demo', bpm: 112, swing: 56, tracks, version: 1 };
+    // batteria sul BUS 1 compresso, tastiere con delay, chorus e riverbero
+    k.params.out = 1; s.params.out = 1; h.params.out = 1;
+    s.params.srev = 40;
+    s.steps[12].locks.sdly = 70; // p-lock: eco solo sul clap
+    h.params.sdly = 18;
+    Object.assign(p.params, { sdly: 34, srev: 52, scho: 45 });
+    const fx = S33.defaultFx();
+    Object.assign(fx.bus0, { bcomp: 50, bdrive: 14, blvl: 88 });
+    Object.assign(fx.rev, { rsize: 78, rdamp: 50 });
+    Object.assign(fx.dly, { dtime: 5, dfb: 52 });
+
+    return { name: 'Demo', bpm: 112, swing: 56, tracks, fx, root: 0, scale: 0, snap: false, version: 2 };
   };
 })();
