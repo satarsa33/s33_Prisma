@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S33 - Prisma</title>
+<meta name="theme-color" content="#0d0e10">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-512.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">S33 - Prisma <span class="sub">polyphonic sampler · sequencer</span></div>
+    <div class="transport">
+      <button id="play" class="tbtn" title="Play / Stop (spazio)">▶</button>
+      <div class="field" id="bpmField" title="Trascina o doppio clic per scrivere"><label>BPM</label><span id="bpm">120</span></div>
+      <div class="field" id="swingField" title="Trascina"><label>SWING</label><span id="swing">50%</span></div>
+      <button id="fill" class="tbtn small" title="Tieni premuto ` per un fill momentaneo">FILL</button>
+      <button id="rec" class="tbtn small rec" title="Registrazione live dalla tastiera (R)">REC</button>
+    </div>
+    <div class="io">
+      <span id="midiStatus" class="midi off">MIDI —</span>
+      <button id="btnNew" class="tbtn small ghost">DEMO</button>
+      <button id="btnOpen" class="tbtn small ghost">APRI</button>
+      <button id="btnSave" class="tbtn small ghost">SALVA</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="tracks"></section>
+
+    <section id="center">
+      <div class="display">
+        <div class="tabs" id="tabs"></div>
+        <div class="screen">
+          <canvas id="wave"></canvas>
+          <div class="info"><span id="infoL"></span><span id="infoR"></span></div>
+        </div>
+        <div class="knobs" id="knobs"></div>
+      </div>
+    </section>
+
+    <aside id="pool">
+      <div class="poolHead">SAMPLE</div>
+      <div class="drop" id="dropSamples">Trascina qui file audio<br><small>ognuno diventa un campione</small></div>
+      <ul id="sampleList"></ul>
+      <div class="poolHead">MULTI</div>
+      <div class="drop" id="dropMulti">Trascina qui più file<br><small>diventano un multicampione</small></div>
+      <ul id="multiList"></ul>
+    </aside>
+  </main>
+
+  <footer>
+    <div class="seqbar">
+      <div class="pages" id="pages"></div>
+      <div class="field" id="lenField" title="Lunghezza della traccia (trascina)"><label>LEN</label><span id="trackLen">16</span></div>
+      <button id="follow" class="tbtn small on" title="La pagina segue la riproduzione">FOLLOW</button>
+      <span class="hint" id="hint">clic = trig · tieni premuto o ⇧clic = seleziona step per p-lock · doppio clic su una manopola = reset</span>
+      <button id="clearLocks" class="tbtn small ghost">CANC. LOCK</button>
+      <button id="clearTrack" class="tbtn small ghost">CANC. TRACCIA</button>
+    </div>
+    <div class="steps" id="steps"></div>
+  </footer>
+</div>
+
+<input type="file" id="fileSamples" accept="audio/*,.wav,.aif,.aiff,.m4a,.mp3,.flac" multiple hidden>
+<input type="file" id="fileMulti" accept="audio/*,.wav,.aif,.aiff,.m4a,.mp3,.flac" multiple hidden>
+<input type="file" id="fileProject" accept=".prisma,.json" hidden>
+<div id="toast"></div>
+
+<script src="js/params.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/factory.js"></script>
+<script src="js/seq.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
