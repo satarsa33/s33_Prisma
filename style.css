@@ -224,7 +224,7 @@ main { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 12px; mi
 .hint { font-size: 9px; color: var(--faint); letter-spacing: 0.08em; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- library ---------- */
-#library { position: fixed; top: 0; right: 0; bottom: 0; width: 300px; background: #171717; border-left: 1px solid var(--line); padding: 16px; display: flex; flex-direction: column; gap: 8px; overflow: auto; z-index: 5; box-shadow: -20px 0 40px rgba(0,0,0,0.5); }
+#library, .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 300px; background: #171717; border-left: 1px solid var(--line); padding: 16px; display: flex; flex-direction: column; gap: 8px; overflow: auto; z-index: 5; box-shadow: -20px 0 40px rgba(0,0,0,0.5); }
 .libHead { display: flex; align-items: center; gap: 10px; }
 .poolHead { font-size: 10px; font-weight: 800; letter-spacing: 0.24em; color: var(--dim); margin-top: 6px; }
 .drop { border: 1px dashed #4a4a4a; border-radius: 9px; padding: 10px; text-align: center; color: var(--dim); font-size: 11px; cursor: pointer; line-height: 1.5; }
@@ -243,3 +243,37 @@ body.dragging #library { display: flex !important; }
 
 #toast { position: fixed; left: 50%; bottom: 130px; transform: translateX(-50%); background: #22262b; border: 1px solid #333; color: var(--cream); padding: 8px 14px; border-radius: 8px; font-size: 12px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 10; }
 #toast.show { opacity: 1; }
+
+/* ---------- pattern e song ---------- */
+.ptn { border-color: #3a2f3a; cursor: pointer; }
+.ptn #ptnNext { color: var(--pink); font-size: 11px; }
+.patGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.patGrid button { height: 52px; border-radius: 9px; border: 1px solid #333; background: #111; color: var(--dim); font-family: var(--mono); font-size: 15px; position: relative; }
+.patGrid button.data { color: var(--cream); background: #1e1c22; }
+.patGrid button.data::after { content: ''; position: absolute; left: 8px; top: 8px; width: 14px; height: 4px; border-radius: 2px; background: var(--tc); }
+.patGrid button.cur { border: 2px solid var(--cream); }
+.patGrid button.next { animation: blink 0.4s infinite alternate; border-color: var(--pink); }
+.patOps { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+#songRows { display: flex; flex-direction: column; gap: 4px; }
+.srow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: #111; border: 1px solid #262626; font-family: var(--mono); }
+.srow.cur { border-color: var(--pink); }
+.srow .ix { color: var(--faint); width: 16px; font-size: 10px; }
+.srow .pv { color: var(--lcdTxt); cursor: ns-resize; padding: 0 6px; border-radius: 4px; background: var(--lcd); font-size: 13px; }
+.srow .rv { color: var(--lcdTxt); cursor: ns-resize; padding: 0 6px; border-radius: 4px; background: var(--lcd); font-size: 13px; }
+.srow .sp { flex: 1; }
+.srow button { width: 22px; height: 22px; border-radius: 5px; border: 1px solid #333; background: #1a1a1a; color: var(--dim); font-size: 10px; padding: 0; }
+#songMode.on { background: var(--pink); color: #2a1520; border-color: var(--pink); }
+
+.zones span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 0 3px; }
+.srcBody .kgrid.k3 { row-gap: 8px; }
+
+/* ---------- auto sampler ---------- */
+.asLab { font-size: 10px; font-weight: 800; letter-spacing: 0.2em; color: var(--dim); margin-top: 6px; }
+.asRow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+#autoDrawer select, .asName { flex: none; min-width: 0; background: #0f0f0f; color: var(--cream); border: 1px solid #333; border-radius: 6px; font: inherit; font-size: 11px; padding: 5px; }
+.asInfo { font-family: var(--mono); font-size: 11px; color: var(--lcdTxt); min-height: 16px; margin-top: 8px; }
+#asMeter { height: 100%; width: 0; background: #5fc4b0; }
+.recgo.wide { width: 100%; border-radius: 9px; height: 40px; color: #ffb3ad; font-weight: 800; letter-spacing: 0.2em; margin-top: 6px; }
+.recgo.wide.on { background: var(--rec); color: #fff; }
+.asRow select { flex: 1 !important; }
+#autoDrawer .asInfo, #autoDrawer .rmeter { flex: none; }

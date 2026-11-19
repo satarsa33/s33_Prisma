@@ -35,7 +35,7 @@
         <button id="play" class="cbtn primary" title="Play / Stop (spazio)">▶ Play</button>
         <button id="rec" class="cbtn" title="Registrazione live dalla tastiera (R)">Rec</button>
         <button id="fill" class="cbtn" title="Fill (tieni premuto `)">Fill</button>
-        <button id="btnLib" class="cbtn" title="Campioni e multicampioni (L)">Library</button>
+        <button id="btnLib" class="cbtn" title="Campioni e multicampioni (I)">Library</button>
         <button id="btnSave" class="cbtn" title="Salva progetto (⌘S)">Save</button>
         <button id="btnOpen" class="cbtn ghost" title="Apri progetto">Open</button>
         <button id="btnNew" class="cbtn ghost" title="Carica il progetto demo">Demo</button>
@@ -66,7 +66,7 @@
           <div class="recSide">
             <div class="seg dk mini" id="recLen"><button data-b="0">FREE</button><button data-b="1">1</button><button data-b="2">2</button><button data-b="4">4</button><button data-b="8">8</button></div>
             <div class="rmeter"><div id="recMeterBar"></div></div>
-            <div class="recOpts"><button id="recMon" class="tiny">MON</button><button id="recNorm" class="tiny">NORM</button><span id="recStatus"></span></div>
+            <div class="recOpts"><button id="recMon" class="tiny">MON</button><button id="recNorm" class="tiny">NORM</button><button id="asOpen" class="tiny" title="Multicampiona un synth esterno via MIDI">AUTO</button><span id="recStatus"></span></div>
           </div>
         </div>
       </div>
@@ -78,7 +78,7 @@
         <div class="phead">
           <span class="ptitle">SOURCE</span><span class="lockdot"></span><span class="pline"></span>
           <span class="lpd">LPD8</span>
-          <div class="seg" data-seg="machine"><button data-v="single">SINGLE</button><button data-v="multi">MULTI</button></div>
+          <div class="seg" data-seg="machine"><button data-v="single">SINGLE</button><button data-v="multi">MULTI</button><button data-v="sub">SUB</button><button data-v="grain">GRAIN</button></div>
           <button class="tog" data-tog="rev">REVERSE</button>
           <button class="tog" data-tog="loop">LOOP</button>
         </div>
@@ -155,6 +155,7 @@
   <section class="panel dark seq" data-panel="trig">
     <div class="phead seqHead">
       <span class="ptitle">SEQUENCER</span>
+      <button class="field small ptn" id="ptnBtn" title="Pattern e song (P) · virgola e punto = pattern precedente/successivo"><label>PTN</label><span id="ptnName">01</span><span id="ptnNext"></span></button>
       <span class="seqTrack" id="seqTrack">T1</span>
       <div class="pages" id="pages"></div>
       <div class="field small" id="lenField" title="Lunghezza traccia (trascina)"><label>LEN</label><span id="trackLen">16</span></div>
@@ -167,7 +168,7 @@
       <button id="clearTrack" class="cbtn small ghost" title="Cancella tutti gli step della traccia">Clr trk</button>
     </div>
     <div class="steps" id="steps"></div>
-    <div class="hint" id="hint">clic = trig · tieni premuto o ⇧clic = seleziona lo step per i p-lock · doppio clic su una manopola = reset · clic su un pannello = LPD8 · ⇧1–6 pannelli</div>
+    <div class="hint" id="hint">clic = trig · tieni premuto o ⇧clic = seleziona lo step per i p-lock · doppio clic su una manopola = reset · clic su un pannello = LPD8 · ⇧1–6 pannelli · P pattern · , . pattern prec/succ · I library · Q keys</div>
   </section>
 </div>
 
@@ -180,6 +181,49 @@
   <div class="poolHead">MULTI</div>
   <div class="drop" id="dropMulti">Trascina qui più file<br><small>diventano un multicampione · oppure clic</small></div>
   <ul id="multiList"></ul>
+</aside>
+
+<!-- Auto Sampler -->
+<aside id="autoDrawer" class="drawer" hidden>
+  <div class="libHead"><span class="ptitle">AUTO SAMPLER</span><span class="pline"></span><button class="cbtn small" id="asClose">Chiudi</button></div>
+  <div class="poolHead">Suona un synth esterno nota per nota via MIDI, registra l'ingresso audio e crea un multicampione.</div>
+  <label class="asLab">MIDI OUT</label>
+  <div class="asRow"><select id="asOut"></select><div class="field small" id="asChF"><label>CH</label><span id="asCh">1</span></div></div>
+  <label class="asLab">INGRESSO AUDIO</label>
+  <select id="asIn"></select>
+  <label class="asLab">NOTE</label>
+  <div class="asRow">
+    <div class="field small" id="asFromF"><label>DA</label><span id="asFrom">C1</span></div>
+    <div class="field small" id="asToF"><label>A</label><span id="asTo">C5</span></div>
+    <div class="seg dk mini" id="asStep"><button data-v="3">3st</button><button data-v="4">4st</button><button data-v="6">6st</button><button data-v="12">12st</button></div>
+  </div>
+  <label class="asLab">DURATA</label>
+  <div class="asRow">
+    <div class="field small" id="asLenF"><label>NOTA</label><span id="asLen">2.0s</span></div>
+    <div class="field small" id="asTailF"><label>CODA</label><span id="asTail">1.0s</span></div>
+    <div class="field small" id="asVelF"><label>VEL</label><span id="asVel">100</span></div>
+  </div>
+  <label class="asLab">NOME</label>
+  <input id="asName" class="asName" value="AUTO" maxlength="20">
+  <div class="asInfo" id="asInfo"></div>
+  <div class="rmeter"><div id="asMeter"></div></div>
+  <button class="recgo wide" id="asGo">AVVIA</button>
+</aside>
+
+<!-- Pattern e Song -->
+<aside id="patDrawer" class="drawer" hidden>
+  <div class="libHead"><span class="ptitle">PATTERN</span><span class="pline"></span><button class="cbtn small" id="patClose">Chiudi</button></div>
+  <div class="patGrid" id="patGrid"></div>
+  <div class="patOps">
+    <button class="cbtn small" id="patCopy">Copia</button>
+    <button class="cbtn small" id="patPaste">Incolla</button>
+    <button class="cbtn small ghost" id="patClear">Cancella</button>
+  </div>
+  <div class="poolHead">clic = cambia pattern (in riproduzione parte alla fine del giro)</div>
+  <div class="libHead" style="margin-top:14px"><span class="ptitle">SONG</span><span class="pline"></span><button class="cbtn small" id="songMode">Song mode</button></div>
+  <div id="songRows"></div>
+  <div class="patOps"><button class="cbtn small" id="songAdd">+ Aggiungi pattern corrente</button></div>
+  <div class="poolHead">in song mode il Play parte dalla prima riga e segue la catena · trascina il numero per cambiare pattern o ripetizioni</div>
 </aside>
 
 <input type="file" id="fileSamples" accept="audio/*,.wav,.aif,.aiff,.m4a,.mp3,.flac" multiple hidden>
