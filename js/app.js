@@ -12,7 +12,7 @@
     track: 0, page: 'SRC', stepPage: 0, selStep: null, heldStep: null, holdFired: false,
     follow: true, playG: -1, octave: 0, rec: false,
     lastNote: [60, 60, 60, 60], keysDown: new Set(), liveVoices: new Map(), recWrites: new Map(),
-    hits: [], ledUntil: [0, 0, 0, 0], stopPressedAt: 0,
+    hits: [], ledUntil: [0, 0, 0, 0], stopPressedAt: 0, subSlot: 0,
     aux: null, kbd: false, kbdHeld: new Map(),
     recSrc: 'main', recBars: 0, recNorm: true, recMon: false, recCount: 0,
   };
@@ -29,7 +29,7 @@
   let saveT;
   function dirty() {
     clearTimeout(saveT);
-    saveT = setTimeout(() => S33.autosave(project, pool), 900);
+    saveT = setTimeout(() => { S33.syncPattern(project); S33.autosave(project, pool); }, 900);
   }
   const track = () => project.tracks[ui.track];
   const activeStepIdx = () => (ui.heldStep != null ? ui.heldStep : ui.selStep);
@@ -43,6 +43,7 @@
     p.tracks.forEach((t, i) => {
       t.params = Object.assign(S33.defaultParams(), t.params || {});
       t.trig = Object.assign(S33.defaultTrig(), t.trig || {});
+      t.sub = t.sub || S33.defaultSub();
       while (t.steps.length < S33.MAX_STEPS) t.steps.push(null);
       t.name = t.name || 'T' + (i + 1);
     });
@@ -54,6 +55,7 @@
     p.root = p.root || 0;
     p.scale = p.scale || 0;
     p.snap = !!p.snap;
+    S33.linkPatterns(p);
     return p;
   }
 
@@ -64,19 +66,21 @@
     project = migrate(saved.project);
     pool = saved.pool;
   } else {
-    project = S33.demoProject();
+    project = migrate(S33.demoProject());
     pool = { samples: factory.samples.slice(), multis: factory.multis.slice() };
   }
   engine.pool = pool;
 
   /* ---------- valori dei parametri ---------- */
   function paramMax(k) {
-    if (k === 'smp') return Math.max(0, smpList(track()).length - 1);
+    if (k === 'smp' || k === 'ssmp') return Math.max(0, (k === 'ssmp' ? pool.samples : smpList(track())).length - 1);
     if (k === 'chord') return S33.CHORDS.length - 1;
     return P[k].max;
   }
   function getVal(k) {
     const t = track();
+    if (P[k].ui) return ui.subSlot;
+    if (P[k].sub) return t.sub[ui.subSlot][k];
     const st = activeStep();
     if (P[k].trig) {
       if (st) return k === 'note' ? st.notes[0] : st[k];
@@ -90,8 +94,8 @@
     return !!(st && !P[k].trig && st.locks[k] !== undefined);
   }
   function fmtVal(k, v) {
-    if (k === 'smp') {
-      const e = smpList(track())[v];
+    if (k === 'smp' || k === 'ssmp') {
+      const e = (k === 'ssmp' ? pool.samples : smpList(track()))[v];
       return e ? e.name : '—';
     }
     if (k === 'lrate') return S33.fmtRate(v, getVal('lsync'));
@@ -106,6 +110,14 @@
   function setVal(k, v, opts = {}) {
     v = quant(k, v);
     const t = track();
+    if (P[k].ui) { if (ui.subSlot === v) return; ui.subSlot = v; renderKnobs(); renderPool(); return; }
+    if (P[k].sub) {
+      if (t.sub[ui.subSlot][k] === v) return;
+      t.sub[ui.subSlot][k] = v;
+      renderKnobs(); if (k === 'ssmp') { renderPool(); renderTracks(); }
+      dirty();
+      return;
+    }
     const st = activeStep();
     if (P[k].trig) {
       if (st) {
@@ -203,7 +215,7 @@
       const nm = el.querySelector('.nm');
       if (nm.contentEditable !== 'true') nm.textContent = t.name;
       const e = smpList(t)[t.params.smp];
-      el.querySelector('.sub').textContent = (t.machine === 'multi' ? '◆ ' : '') + (e ? e.name : '—') + ' · ' + t.length + ' st' +
+      el.querySelector('.sub').textContent = (t.machine === 'sub' ? 'SUB ×8' : (t.machine === 'multi' ? '◆ ' : t.machine === 'grain' ? '≈ ' : '') + (e ? e.name : '—')) + ' · ' + t.length + ' st' +
         (t.params.out ? ' · → B' + t.params.out : '') + (t.params.chord ? ' · ♫ ' + S33.CHORDS[t.params.chord].label : '');
       el.querySelector('.ms.m').classList.toggle('on', t.mute);
       el.querySelector('.ms.s').classList.toggle('on', t.solo);
@@ -323,10 +335,40 @@
     el.addEventListener('dblclick', () => kReset(k, aux));
     return o;
   }
+  // la SOURCE cambia manopole a seconda della machine
+  const SRC_KNOBS = {
+    single: ['smp', 'tune', 'fine', 'start', 'end', 'level'],
+    multi: ['smp', 'tune', 'fine', 'start', 'end', 'level'],
+    sub: ['slot', 'ssmp', 'stune', 'slvl', 'span', 'level'],
+    grain: ['smp', 'tune', 'gpos', 'gsize', 'gdens', 'gspray', 'gjit', 'gscan', 'level'],
+  };
+  const SRC_FOCUS = {
+    single: ['smp', 'tune', 'fine', 'start', 'end', 'level', 'loop', 'rev'],
+    multi: ['smp', 'tune', 'fine', 'start', 'end', 'level', 'loop', 'rev'],
+    sub: ['slot', 'ssmp', 'stune', 'slvl', 'span', 'level', 'rev'],
+    grain: ['smp', 'tune', 'gpos', 'gsize', 'gdens', 'gspray', 'gjit', 'gscan'],
+  };
+  let srcMachine = null;
+  function buildSrcKnobs() {
+    const m = track().machine;
+    if (m === srcMachine) return;
+    srcMachine = m;
+    const box = document.querySelector('[data-knobs="src"]');
+    for (let i = knobs.length - 1; i >= 0; i--) if (knobs[i].panel === 'src') knobs.splice(i, 1);
+    box.innerHTML = '';
+    SRC_KNOBS[m].forEach((k) => {
+      const o = makeKnob(k, false);
+      o.panel = 'src';
+      knobs.push(o);
+      box.appendChild(o.el);
+    });
+    FOCUS_KEYS.src = SRC_FOCUS[m];
+    document.querySelector('[data-tog="loop"]').hidden = m === 'grain' || m === 'sub';
+  }
   function buildPanels() {
     document.querySelectorAll('[data-knobs]').forEach((box) => {
       const id = box.dataset.knobs;
-      if (id === 'aux') return;
+      if (id === 'aux' || id === 'src') return;
       PANEL_KNOBS[id].forEach((k) => {
         const o = makeKnob(k, false);
         o.panel = id;
@@ -415,6 +457,7 @@
     }
   }
   function renderKnobs() {
+    buildSrcKnobs();
     const st = activeStep();
     const fk = focusKeys();
     knobs.forEach((o) => {
@@ -553,6 +596,7 @@
   }
   // keyboard mode: i 16 tasti diventano gradi della scala
   function kbdNote(i) {
+    if (track().machine === 'sub') return 60 + i;
     const base = 48 + project.root + ui.octave * 12;
     return S33.clamp(S33.scaleDegree(base, i, project.root, project.scale), 0, 127);
   }
@@ -563,7 +607,7 @@
       stepEls.forEach((el, i) => {
         const n = kbdNote(i);
         el.className = 'step key' + ((((n - project.root) % 12) + 12) % 12 === 0 ? ' root' : '') + (ui.liveVoices.has(n) ? ' held' : '');
-        el.querySelector('.n').textContent = S33.noteName(n);
+        el.querySelector('.n').textContent = t.machine === 'sub' ? 'S' + ((i % 8) + 1) + ' ' + ((pool.samples[t.sub[i % 8].ssmp] || {}).name || '') : S33.noteName(n);
         el.querySelector('.cd').textContent = '';
         el.querySelector('.nt').textContent = t.params.chord ? S33.CHORDS[t.params.chord].label : '';
         el.querySelector('.vbar').style.width = '0';
@@ -629,7 +673,7 @@
       ul.innerHTML = '';
       list.forEach((e, i) => {
         const li = document.createElement('li');
-        const cur = (kind === 'multi') === (t.machine === 'multi') && getVal('smp') === i;
+        const cur = t.machine === 'sub' ? kind === 'single' && t.sub[ui.subSlot].ssmp === i : (kind === 'multi') === (t.machine === 'multi') && getVal('smp') === i;
         li.className = cur ? 'cur' : '';
         const meta = kind === 'multi'
           ? e.zones.length + 'z'
@@ -648,6 +692,14 @@
   function assignToTrack(kind, i) {
     const t = track();
     const st = activeStep();
+    const sampleMachine = t.machine === 'sub' || t.machine === 'grain';
+    if (kind === 'single' && t.machine === 'sub') {
+      t.sub[ui.subSlot].ssmp = i;
+      toast('Campione sulla sottotraccia ' + (ui.subSlot + 1));
+      renderAll(); dirty();
+      return;
+    }
+    if (kind === 'single' && sampleMachine) kind = t.machine;
     if (st) {
       if (t.machine !== kind) return toast('La traccia è ' + t.machine.toUpperCase() + ': scegli dalla lista giusta');
       st.locks.smp = i;
@@ -784,6 +836,11 @@
   }
   function currentEntry() {
     const t = track();
+    if (t.machine === 'sub') {
+      const sl = t.sub[ui.subSlot];
+      const s = pool.samples[sl.ssmp];
+      return s ? { buffer: s.buffer, label: 'SUB ' + (ui.subSlot + 1) + ' · ' + s.name + ' · ' + S33.noteName(60 + ui.subSlot), short: s.name, sub: true } : null;
+    }
     const smp = getVal('smp');
     if (t.machine === 'multi') {
       const m = pool.multis[smp];
@@ -813,12 +870,20 @@
     const { g, W, H } = c;
     const e = currentEntry();
     $('waveLabel').textContent = e ? e.label : '—';
-    const top = 26, bottom = e && e.multi ? 28 : 10;
+    const top = 26, bottom = e && (e.multi || e.sub) ? 28 : 10;
     const h = H - top - bottom, mid = top + h / 2;
     if (!e) return;
-    const st = getVal('start'), en = getVal('end'), loop = getVal('loop'), rev = getVal('rev');
+    const grain = track().machine === 'grain';
+    const st = grain ? 0 : getVal('start'), en = grain ? 1 : getVal('end'), loop = !grain && getVal('loop'), rev = getVal('rev');
     const p = peaks(e.buffer, Math.max(1, Math.floor(W)));
     const xs = st * W, xe = Math.max(xs + 1, en * W);
+    if (grain) {
+      // posizione del granulatore e zona di spray
+      const gp = getVal('gpos') * W;
+      const sp = (getVal('gspray') / 127) * 0.2 * W;
+      g.fillStyle = 'rgba(244,163,192,0.18)';
+      g.fillRect(gp - sp, 0, sp * 2, H);
+    }
     g.fillStyle = 'rgba(0,0,0,0.22)';
     g.fillRect(0, 0, xs, H);
     g.fillRect(xe, 0, W - xe, H);
@@ -830,8 +895,8 @@
       g.fillRect(x, y0, 1, Math.max(1, y1 - y0));
     }
     g.fillStyle = '#f4a3c0';
-    g.fillRect(xs, 0, 2, H);
-    g.fillRect(xe - 2, 0, 2, H);
+    if (grain) g.fillRect(getVal('gpos') * W - 1, 0, 2, H);
+    else { g.fillRect(xs, 0, 2, H); g.fillRect(xe - 2, 0, 2, H); }
     if (loop) {
       g.fillStyle = '#9fe8f0';
       g.fillRect(xs, H - bottom + 2, xe - xs, 2);
@@ -846,7 +911,18 @@
   function renderZones() {
     const e = currentEntry();
     const box = $('zones');
-    if (!e || !e.multi) { box.innerHTML = ''; return; }
+    const t = track();
+    if (t.machine === 'sub') {
+      const key = 'sub:' + ui.track + ':' + ui.subSlot + ':' + t.sub.map((x) => x.ssmp).join(',');
+      if (box.dataset.key === key) return;
+      box.dataset.key = key;
+      box.style.pointerEvents = 'auto';
+      box.innerHTML = t.sub.map((x, i) => `<span data-slot="${i}" class="${i === ui.subSlot ? 'on' : ''}" style="cursor:pointer">${i + 1} ${(pool.samples[x.ssmp] || { name: '—' }).name}</span>`).join('');
+      box.querySelectorAll('span').forEach((sp) => sp.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); setVal('slot', +sp.dataset.slot); renderZones(); }));
+      return;
+    }
+    box.style.pointerEvents = 'none';
+    if (!e || !e.multi) { box.innerHTML = ''; box.dataset.key = ''; return; }
     const key = e.multi.id + ':' + e.zone.root;
     if (box.dataset.key === key) return;
     box.dataset.key = key;
@@ -999,7 +1075,7 @@
     const t = track();
     const e = currentEntry();
     $('lcdTrack').textContent = 'T' + (ui.track + 1);
-    $('lcdMain').textContent = t.name + ' · ' + (t.machine === 'multi' ? 'MULTI PLAYER' : 'SINGLE PLAYER');
+    $('lcdMain').textContent = t.name + ' · ' + { single: 'SINGLE PLAYER', multi: 'MULTI PLAYER', sub: 'SUBTRACKS', grain: 'GRAINER' }[t.machine];
     const st = activeStep();
     const parts = [];
     if (st) {
@@ -1038,6 +1114,10 @@
       ui.recWrites.clear();
     } else {
       project.tracks.forEach((t, i) => engine.updateLfo(i, t.params, project.bpm));
+      if (project.songMode && project.song.length) {
+        ui.songRow = 0; ui.songRep = 0; ui.nextPat = null;
+        if (project.song[0].pat !== project.pat) { switchPattern(project.song[0].pat); renderAll(); }
+      }
       seq.start();
     }
     $('play').classList.toggle('on', seq.playing);
@@ -1155,10 +1235,12 @@
     kSet(k, mn + (val / 127) * (mx - mn), aux, { quiet: true });
   }
 
+  let midiAccess = null;
   function setupMidi() {
     const st = $('midiStatus');
     if (!navigator.requestMIDIAccess) { st.textContent = 'MIDI non supportato'; return; }
     navigator.requestMIDIAccess().then((access) => {
+      midiAccess = access;
       const hook = () => {
         const names = [];
         access.inputs.forEach((inp) => {
@@ -1196,7 +1278,9 @@
       if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) togglePlay(); return; }
       if (e.repeat) return;
       if (e.shiftKey && /^Digit[1-6]$/.test(e.code)) { if (ui.aux) { ui.aux = null; buildAuxKnobs(); } ui.focus = ui.trackFocus = FOCUS_ORDER[+e.code.slice(5) - 1]; renderAll(); return; }
-      if (key === 'l') { toggleLibrary(); return; }
+      if (key === 'i') { toggleLibrary(); return; }
+      if (key === 'p') { toggleDrawer('patDrawer'); return; }
+      if (e.key === ',' || e.key === '.') { choosePattern((project.pat + (e.key === '.' ? 1 : S33.PATTERNS - 1)) % S33.PATTERNS); return; }
       if (/^Digit[1-4]$/.test(e.code)) { selectTrack(+e.code.slice(5) - 1); return; }
       if (key in KEYMAP) { noteOn(S33.clamp(60 + ui.octave * 12 + KEYMAP[key], 0, 127), 100); return; }
       if (key === 'z') { ui.octave = Math.max(-4, ui.octave - 1); toast('Ottava ' + (ui.octave >= 0 ? '+' : '') + ui.octave); renderSteps(); return; }
@@ -1232,6 +1316,7 @@
   /* ---------- salva / apri ---------- */
   async function saveProject() {
     const name = (project.name || 'Progetto').replace(/[^\w\- ]+/g, '');
+    S33.syncPattern(project);
     const text = S33.projectToFile(project, pool);
     try {
       if (window.showSaveFilePicker) {
@@ -1348,6 +1433,7 @@
     b.classList.toggle('on', st === 'rec');
     b.title = st === 'idle' ? 'Campiona' : st === 'wait' ? 'In attesa della battuta' : 'Stop';
     $('recMeterBar').style.width = recorder ? Math.min(100, recorder.meter * 100) + '%' : '0';
+    $('asMeter').style.width = recorder && AS.running ? Math.min(100, recorder.meter * 100) + '%' : '0';
     $('recMeterBar').classList.toggle('clip', !!(recorder && recorder.meter > 0.99));
     const secs = recorder && st === 'rec' ? (recorder.frames || 0) / engine.ctx.sampleRate : 0;
     $('recStatus').textContent = st === 'rec' ? 'REC ' + secs.toFixed(1) + ' s' : st === 'wait' ? 'parte alla prossima battuta' : ui.recSrc === 'in' ? 'ingresso audio' : 'ricampiona l\'uscita';
@@ -1367,6 +1453,118 @@
     updateRecUI();
   }
 
+  /* ---------- Auto Sampler ---------- */
+  const AS = { ch: 1, from: 36, to: 84, step: 6, len: 2, tail: 1, vel: 100, running: false, abort: false };
+  function renderAuto() {
+    $('asCh').textContent = AS.ch;
+    $('asFrom').textContent = S33.noteName(AS.from);
+    $('asTo').textContent = S33.noteName(AS.to);
+    $('asLen').textContent = AS.len.toFixed(1) + 's';
+    $('asTail').textContent = AS.tail.toFixed(1) + 's';
+    $('asVel').textContent = AS.vel;
+    $('asStep').querySelectorAll('button').forEach((b) => b.classList.toggle('on', +b.dataset.v === AS.step));
+    const n = Math.floor((AS.to - AS.from) / AS.step) + 1;
+    if (!AS.running) $('asInfo').textContent = n + ' note · circa ' + Math.round(n * (AS.len + AS.tail + 0.3)) + ' s';
+    $('asGo').textContent = AS.running ? 'STOP' : 'AVVIA';
+    $('asGo').classList.toggle('on', AS.running);
+  }
+  async function openAuto() {
+    toggleDrawer('autoDrawer');
+    if ($('autoDrawer').hidden) return;
+    const outSel = $('asOut');
+    outSel.innerHTML = '';
+    if (midiAccess) midiAccess.outputs.forEach((o) => {
+      const op = document.createElement('option');
+      op.value = o.id; op.textContent = o.name;
+      outSel.appendChild(op);
+    });
+    if (!outSel.children.length) outSel.innerHTML = '<option value="">nessuna uscita MIDI</option>';
+    const r = await ensureRecorder();
+    try {
+      if (!r.inStream) await r.openInput();
+      const devs = await r.listInputs();
+      const inSel = $('asIn');
+      inSel.innerHTML = '';
+      devs.forEach((d, i) => { const op = document.createElement('option'); op.value = d.deviceId; op.textContent = d.label || 'Ingresso ' + (i + 1); inSel.appendChild(op); });
+      if (r.deviceId) inSel.value = r.deviceId;
+    } catch (e) { toast('Serve l\'accesso all\'ingresso audio'); }
+    renderAuto();
+  }
+  async function runAuto() {
+    if (AS.running) { AS.abort = true; return; }
+    const out = midiAccess && midiAccess.outputs.get($('asOut').value);
+    if (!out) return toast('Scegli un\'uscita MIDI collegata al synth');
+    engine.resume();
+    const r = await ensureRecorder();
+    try {
+      await r.openInput($('asIn').value || undefined);
+      await r.setSource('in');
+      ui.recSrc = 'in';
+    } catch (e) { return toast('Ingresso audio non disponibile'); }
+    if (r.state !== 'idle') return toast('Il Recorder è già in uso');
+    AS.running = true; AS.abort = false;
+    renderAuto();
+    const ch = (AS.ch - 1) & 15;
+    const notes = [];
+    for (let n = AS.from; n <= AS.to; n += AS.step) notes.push(n);
+    const zones = [];
+    for (let i = 0; i < notes.length && !AS.abort; i++) {
+      const n = notes[i];
+      $('asInfo').textContent = 'nota ' + (i + 1) + '/' + notes.length + ' · ' + S33.noteName(n);
+      const at = engine.ctx.currentTime + 0.2;
+      const msAt = performance.now() + 200 - (engine.ctx.outputLatency || 0) * 1000;
+      const take = r.take(at, AS.len + AS.tail);
+      out.send([0x90 | ch, n, AS.vel], msAt);
+      out.send([0x80 | ch, n, 0], msAt + AS.len * 1000);
+      const buf = await take;
+      if (buf) zones.push({ root: n, name: S33.noteName(n), buffer: buf });
+    }
+    out.send([0xb0 | ((AS.ch - 1) & 15), 123, 0]); // all notes off
+    AS.running = false;
+    if (AS.abort && !zones.length) { renderAuto(); return toast('Auto Sampler interrotto'); }
+    // taglia la latenza iniziale e normalizza tutte le zone con lo stesso guadagno
+    let peak = 0;
+    zones.forEach((z) => { for (let c = 0; c < z.buffer.numberOfChannels; c++) { const d = z.buffer.getChannelData(c); for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i])); } });
+    if (peak < 1e-4) { renderAuto(); return toast('Nessun segnale in ingresso: controlla il collegamento audio'); }
+    const gain = 0.95 / peak, th = peak * 0.01;
+    zones.forEach((z) => {
+      const b = z.buffer, L = b.getChannelData(0), R = b.numberOfChannels > 1 ? b.getChannelData(1) : L;
+      let a = 0;
+      while (a < L.length && Math.abs(L[a]) < th && Math.abs(R[a]) < th) a++;
+      a = Math.max(0, a - Math.round(b.sampleRate * 0.002));
+      const len = Math.max(64, L.length - a);
+      const nb = new AudioBuffer({ length: len, numberOfChannels: 2, sampleRate: b.sampleRate });
+      [L, R].forEach((d, c) => {
+        const o = new Float32Array(len);
+        for (let i = 0; i < len; i++) o[i] = (d[a + i] || 0) * gain;
+        for (let i = 0; i < 256 && i < len; i++) o[len - 1 - i] *= i / 256;
+        nb.copyToChannel(o, c);
+      });
+      z.buffer = nb;
+    });
+    const name = ($('asName').value.trim() || 'AUTO').slice(0, 20);
+    pool.multis.push({ id: uid(), name, zones });
+    assignToTrackNoLock('multi', pool.multis.length - 1);
+    dirty();
+    renderAuto();
+    toast('Multicampione "' + name + '": ' + zones.length + ' zone');
+  }
+  function setupAutoUI() {
+    $('asOpen').onclick = openAuto;
+    $('asClose').onclick = () => toggleDrawer('autoDrawer');
+    $('asGo').onclick = runAuto;
+    $('asIn').onchange = async (e) => { try { (await ensureRecorder()).openInput(e.target.value); } catch (er) {} };
+    $('asStep').querySelectorAll('button').forEach((b) => (b.onclick = () => { AS.step = +b.dataset.v; renderAuto(); }));
+    dragNum($('asChF'), () => AS.ch, (v) => { AS.ch = S33.clamp(v, 1, 16); renderAuto(); });
+    dragNum($('asFromF'), () => AS.from, (v) => { AS.from = S33.clamp(v, 0, AS.to); renderAuto(); }, 0.15);
+    dragNum($('asToF'), () => AS.to, (v) => { AS.to = S33.clamp(v, AS.from, 127); renderAuto(); }, 0.15);
+    dragNum($('asLenF'), () => Math.round(AS.len * 10), (v) => { AS.len = S33.clamp(v, 1, 100) / 10; renderAuto(); }, 0.3);
+    dragNum($('asTailF'), () => Math.round(AS.tail * 10), (v) => { AS.tail = S33.clamp(v, 0, 100) / 10; renderAuto(); }, 0.3);
+    dragNum($('asVelF'), () => AS.vel, (v) => { AS.vel = S33.clamp(v, 1, 127); renderAuto(); }, 0.3);
+    $('asName').addEventListener('keydown', (e) => e.stopPropagation());
+    renderAuto();
+  }
+
   /* ---------- scala ---------- */
   function setupScaleUI() {
     setupDragField('rootField', () => project.root, (v) => { project.root = ((Math.round(v) % 12) + 12) % 12; renderTransport(); renderSteps(); dirty(); }, 0.1);
@@ -1380,9 +1578,128 @@
   }
 
   function toggleLibrary() {
+    $('patDrawer').hidden = true;
     $('library').hidden = !$('library').hidden;
     $('btnLib').classList.toggle('on', !$('library').hidden);
     if (!$('library').hidden) renderPool();
+  }
+  function toggleDrawer(id) {
+    const el = $(id);
+    const show = el.hidden;
+    document.querySelectorAll('.drawer, #library').forEach((d) => (d.hidden = true));
+    $('btnLib').classList.remove('on');
+    el.hidden = !show;
+    if (show) renderPatterns();
+  }
+
+  /* ---------- pattern e song ---------- */
+  ui.nextPat = null;
+  ui.songRow = 0;
+  ui.songRep = 0;
+  let patClip = null;
+  let boundaryFlag = false;
+  function switchPattern(i) {
+    S33.loadPattern(project, i);
+    ui.selStep = null;
+    ui.heldStep = null;
+    ui.stepPage = 0;
+  }
+  function choosePattern(i) {
+    if (seq.playing && project.songMode && project.song.length) return toast('In song mode i pattern li sceglie la catena');
+    if (seq.playing) {
+      ui.nextPat = i === project.pat ? null : i;
+      renderPatterns();
+      return;
+    }
+    switchPattern(i);
+    renderAll();
+    dirty();
+  }
+  // chiamata dal sequencer alla fine di ogni giro del pattern
+  seq.onBoundary = () => {
+    let target = null;
+    if (project.songMode && project.song.length) {
+      ui.songRep++;
+      const row = project.song[ui.songRow];
+      if (!row || ui.songRep >= row.rep) {
+        ui.songRow = (ui.songRow + 1) % project.song.length;
+        ui.songRep = 0;
+        target = project.song[ui.songRow].pat;
+      }
+    } else if (ui.nextPat != null) {
+      target = ui.nextPat;
+      ui.nextPat = null;
+    }
+    boundaryFlag = true;
+    if (target == null || target === project.pat) return false;
+    switchPattern(target);
+    return true;
+  };
+  function dragNum(el, get, set, per = 0.08) {
+    let y0 = null, v0 = 0;
+    el.addEventListener('pointerdown', (e) => { el.setPointerCapture(e.pointerId); y0 = e.clientY; v0 = get(); e.stopPropagation(); });
+    el.addEventListener('pointermove', (e) => { if (y0 != null) set(Math.round(v0 + (y0 - e.clientY) * per)); });
+    el.addEventListener('pointerup', () => (y0 = null));
+    el.addEventListener('wheel', (e) => { e.preventDefault(); set(get() + (e.deltaY < 0 ? 1 : -1)); }, { passive: false });
+  }
+  function buildPatternUI() {
+    const grid = $('patGrid');
+    for (let i = 0; i < S33.PATTERNS; i++) {
+      const b = document.createElement('button');
+      b.textContent = S33.patName(i);
+      b.onclick = () => choosePattern(i);
+      grid.appendChild(b);
+    }
+    $('ptnBtn').onclick = () => toggleDrawer('patDrawer');
+    $('patClose').onclick = () => toggleDrawer('patDrawer');
+    $('patCopy').onclick = () => { patClip = S33.copyPattern(project.tracks); toast('Pattern ' + S33.patName(project.pat) + ' copiato'); };
+    $('patPaste').onclick = () => {
+      if (!patClip) return toast('Niente da incollare: copia prima un pattern');
+      S33.copyPattern(patClip).forEach((pt, k) => { project.tracks[k].steps = pt.steps; project.tracks[k].length = pt.length; });
+      S33.syncPattern(project);
+      ui.selStep = null;
+      renderAll(); dirty();
+      toast('Incollato nel pattern ' + S33.patName(project.pat));
+    };
+    $('patClear').onclick = () => {
+      if (!confirm('Cancellare tutti gli step del pattern ' + S33.patName(project.pat) + '?')) return;
+      project.tracks.forEach((t) => t.steps.fill(null));
+      ui.selStep = null;
+      renderAll(); dirty();
+    };
+    $('songMode').onclick = () => {
+      project.songMode = !project.songMode;
+      if (project.songMode && !project.song.length) project.song.push({ pat: project.pat, rep: 1 });
+      ui.nextPat = null;
+      renderPatterns(); dirty();
+    };
+    $('songAdd').onclick = () => { project.song.push({ pat: project.pat, rep: 1 }); renderPatterns(); dirty(); };
+  }
+  function renderPatterns() {
+    $('ptnName').textContent = S33.patName(project.pat);
+    $('ptnNext').textContent = ui.nextPat != null ? ' → ' + S33.patName(ui.nextPat) : project.songMode && project.song.length ? ' SONG' : '';
+    if ($('patDrawer').hidden) return;
+    [...$('patGrid').children].forEach((b, i) => {
+      b.classList.toggle('cur', i === project.pat);
+      b.classList.toggle('next', i === ui.nextPat);
+      b.classList.toggle('data', S33.patternHasData(project, i));
+    });
+    $('songMode').classList.toggle('on', project.songMode);
+    const box = $('songRows');
+    box.innerHTML = '';
+    project.song.forEach((row, r) => {
+      const el = document.createElement('div');
+      el.className = 'srow' + (seq.playing && project.songMode && r === ui.songRow ? ' cur' : '');
+      el.innerHTML = `<span class="ix">${r + 1}</span>PTN<span class="pv">${S33.patName(row.pat)}</span>×<span class="rv">${row.rep}</span><span class="sp"></span>
+        <button title="Su">▲</button><button title="Giù">▼</button><button title="Elimina">✕</button>`;
+      dragNum(el.querySelector('.pv'), () => row.pat, (v) => { row.pat = S33.clamp(v, 0, S33.PATTERNS - 1); el.querySelector('.pv').textContent = S33.patName(row.pat); dirty(); });
+      dragNum(el.querySelector('.rv'), () => row.rep, (v) => { row.rep = S33.clamp(v, 1, 64); el.querySelector('.rv').textContent = row.rep; dirty(); });
+      const [up, dn, del] = el.querySelectorAll('button');
+      up.onclick = () => { if (r > 0) { project.song.splice(r - 1, 0, project.song.splice(r, 1)[0]); renderPatterns(); dirty(); } };
+      dn.onclick = () => { if (r < project.song.length - 1) { project.song.splice(r + 1, 0, project.song.splice(r, 1)[0]); renderPatterns(); dirty(); } };
+      del.onclick = () => { project.song.splice(r, 1); if (!project.song.length) project.songMode = false; renderPatterns(); dirty(); };
+      box.appendChild(el);
+    });
   }
 
   /* ---------- render complessivo e loop ---------- */
@@ -1394,6 +1711,7 @@
     renderPool();
     renderInfo();
     renderTransport();
+    renderPatterns();
   }
 
   function frame() {
@@ -1403,6 +1721,7 @@
       ui.playG = seq.uiQueue.shift().g;
       changed = true;
     }
+    if (boundaryFlag) { boundaryFlag = false; renderAll(); }
     if (changed && seq.playing) {
       const t = track();
       const pos = ui.playG % t.length;
@@ -1442,6 +1761,8 @@
   /* ---------- collegamenti ---------- */
   buildPanels();
   buildSteps();
+  buildPatternUI();
+  setupAutoUI();
   setupDrops();
   setupMidi();
   setupKeys();
@@ -1459,7 +1780,7 @@
   $('btnNew').onclick = () => {
     if (!confirm('Caricare il progetto demo? Il lavoro non salvato su file andrà perso.')) return;
     if (seq.playing) togglePlay();
-    project = S33.demoProject();
+    project = migrate(S33.demoProject());
     pool = { samples: factory.samples.slice(), multis: factory.multis.slice() };
     engine.pool = pool;
     ui.track = 0; ui.selStep = null; ui.stepPage = 0; ui.aux = null;

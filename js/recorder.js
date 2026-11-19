@@ -163,6 +163,19 @@
       this.state = 'wait';
       if (this.onState) this.onState();
     }
+    // una registrazione a durata fissa che restituisce il buffer (per l'Auto Sampler)
+    take(at, seconds) {
+      return new Promise((resolve) => {
+        const prev = this.onDone;
+        let guard = null;
+        const finish = (b) => { clearTimeout(guard); this.onDone = prev; resolve(b); };
+        this.onDone = (b) => finish(b);
+        this.start(at, seconds);
+        // registrazione vuota: _msg non chiama onDone, quindi si chiude da sola
+        guard = setTimeout(() => finish(null), (at - this.ctx.currentTime + seconds) * 1000 + 3000);
+      });
+    }
+
     stop() {
       if (this.state === 'idle') return;
       this.node.port.postMessage({ cmd: 'stop' });

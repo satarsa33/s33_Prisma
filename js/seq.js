@@ -13,6 +13,7 @@
     name: 'T' + (i + 1),
     machine: 'single',
     params: S33.defaultParams(),
+    sub: S33.defaultSub(),
     trig: S33.defaultTrig(),
     length: 16,
     mute: false,
@@ -22,9 +23,9 @@
 
   // parametri effettivi per uno step: valori traccia + p-lock
   S33.resolveParams = (track, step) => {
-    if (!step || !step.locks) return track.params;
     const p = Object.assign({}, track.params);
-    for (const k in step.locks) p[k] = step.locks[k];
+    if (step && step.locks) for (const k in step.locks) p[k] = step.locks[k];
+    p._sub = track.sub;
     return p;
   };
 
@@ -72,6 +73,9 @@
       if (!this.playing) return;
       const ctx = this.engine.ctx;
       while (this.gridT < ctx.currentTime + this.lookahead) {
+        // fine del pattern: cambio pattern / avanzamento song
+        const ml = S33.masterLength(this.getProject());
+        if (this.g > 0 && this.g % ml === 0 && this.onBoundary && this.onBoundary()) this.g = 0;
         this._scheduleGrid(this.g, this.gridT);
         this.uiQueue.push({ g: this.g, t: this.gridT + this.swingOffset(this.g) });
         this.grid.push({ g: this.g, t: this.gridT + this.swingOffset(this.g) });
@@ -147,6 +151,40 @@
     }
   }
   S33.Sequencer = Sequencer;
+
+  /* ---------- pattern ---------- */
+  S33.PATTERNS = 16;
+  S33.patName = (i) => String(i + 1).padStart(2, '0');
+  // lunghezza del pattern = traccia più lunga
+  S33.masterLength = (proj) => Math.max(1, ...proj.tracks.map((t) => t.length));
+  const emptyPat = () => Array.from({ length: S33.TRACKS }, () => ({ steps: new Array(S33.MAX_STEPS).fill(null), length: 16 }));
+  // il pattern corrente vive nelle tracce: patterns[pat] punta agli stessi array
+  S33.linkPatterns = (proj) => {
+    if (!proj.patterns) proj.patterns = new Array(S33.PATTERNS).fill(null);
+    while (proj.patterns.length < S33.PATTERNS) proj.patterns.push(null);
+    proj.pat = proj.pat || 0;
+    proj.patterns[proj.pat] = proj.tracks.map((t) => ({ steps: t.steps, length: t.length }));
+    proj.song = proj.song || [];
+    proj.songMode = !!proj.songMode;
+  };
+  S33.syncPattern = (proj) => {
+    proj.patterns[proj.pat] = proj.tracks.map((t) => ({ steps: t.steps, length: t.length }));
+  };
+  S33.loadPattern = (proj, i) => {
+    S33.syncPattern(proj);
+    if (!proj.patterns[i]) proj.patterns[i] = emptyPat();
+    proj.patterns[i].forEach((pt, k) => {
+      while (pt.steps.length < S33.MAX_STEPS) pt.steps.push(null);
+      proj.tracks[k].steps = pt.steps;
+      proj.tracks[k].length = pt.length;
+    });
+    proj.pat = i;
+  };
+  S33.patternHasData = (proj, i) => {
+    const p = i === proj.pat ? proj.tracks : proj.patterns[i];
+    return !!(p && p.some((t) => t.steps.some(Boolean)));
+  };
+  S33.copyPattern = (src) => src.map((t) => ({ steps: JSON.parse(JSON.stringify(t.steps)), length: t.length }));
 
   /* ---------- progetto demo ---------- */
   S33.demoProject = () => {

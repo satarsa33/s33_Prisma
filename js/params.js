@@ -67,6 +67,19 @@
     loop: { label: 'LOOP', min: 0, max: 1, step: 1, def: 0, fmt: onOff, lock: true },
     rev: { label: 'REV', min: 0, max: 1, step: 1, def: 0, fmt: onOff, lock: true },
     level: { label: 'LEVEL', min: 0, max: 127, step: 1, def: 110, lock: true },
+    // GRAIN (machine granulare, bloccabili)
+    gpos: { label: 'POS', min: 0, max: 1, step: 0.001, def: 0.3, fmt: pct, lock: true },
+    gsize: { label: 'SIZE', min: 0, max: 127, step: 1, def: 60, fmt: (v) => { const t = 0.005 * Math.pow(200, v / 127); return t < 1 ? Math.round(t * 1000) + 'ms' : t.toFixed(2) + 's'; }, lock: true },
+    gdens: { label: 'DENSITY', min: 0, max: 127, step: 1, def: 75, fmt: (v) => Math.pow(120, v / 127).toFixed(1) + '/s', lock: true },
+    gspray: { label: 'SPRAY', min: 0, max: 127, step: 1, def: 20, lock: true },
+    gjit: { label: 'JITTER', min: 0, max: 127, step: 1, def: 8, fmt: (v) => '±' + Math.round((v / 127) * 100) + 'c', lock: true },
+    gscan: { label: 'SCAN', min: -64, max: 63, step: 1, def: 0, fmt: (v) => (v === 0 ? 'FREEZE' : ((v / 64) * 2).toFixed(2) + '×'), lock: true },
+    // SUBTRACKS (impostazioni della sottotraccia selezionata)
+    slot: { label: 'SLOT', min: 0, max: 7, step: 1, def: 0, fmt: (v) => 'SUB ' + (v + 1) + ' · ' + S33.noteName(60 + v), ui: true },
+    ssmp: { label: 'S.SAMPLE', min: 0, max: 0, step: 1, def: 0, dynamic: true, sub: true },
+    stune: { label: 'S.TUNE', min: -24, max: 24, step: 1, def: 0, fmt: signed, sub: true },
+    slvl: { label: 'S.LEVEL', min: 0, max: 127, step: 1, def: 110, sub: true },
+    span: { label: 'S.PAN', min: -64, max: 63, step: 1, def: 0, fmt: (v) => (v === 0 ? 'C' : v < 0 ? 'L' + -v : 'R' + v), sub: true },
     // FLTR
     ftype: { label: 'TYPE', min: 0, max: 2, step: 1, def: 0, fmt: (v) => S33.FTYPES[v], lock: true },
     freq: { label: 'FREQ', min: 0, max: 127, step: 1, def: 127, fmt: fmtHz, lock: true },
@@ -310,9 +323,11 @@
 
   S33.defaultParams = () => {
     const p = {};
-    for (const k in S33.PARAMS) if (!S33.PARAMS[k].trig) p[k] = S33.PARAMS[k].def;
+    for (const k in S33.PARAMS) { const d = S33.PARAMS[k]; if (!d.trig && !d.sub && !d.ui) p[k] = d.def; }
     return p;
   };
+  S33.defaultSub = () => Array.from({ length: 8 }, (_, i) => ({ ssmp: i % 8, stune: 0, slvl: 110, span: 0 }));
+  S33.MACHINES = ['single', 'multi', 'sub', 'grain'];
   S33.defaultTrig = () => ({ note: 60, vel: 100, len: 4, micro: 0, cond: 0 });
 
   // Riconosce una nota nel nome file: "Piano_C3.wav", "EP F#2", "sax-60.wav"

@@ -330,6 +330,14 @@
         }
         return { entry: best, buffer: p.rev ? reversed(best) : best.buffer, root: best.root };
       }
+      if (machine === 'sub') {
+        // Subtracks: C3..G3 (e ottave) = sottotracce 1..8, ognuna col suo campione
+        const slot = (((note - 60) % 8) + 8) % 8;
+        const sl = (p._sub && p._sub[slot]) || { ssmp: 0, stune: 0, slvl: 110, span: 0 };
+        const e = pool.samples[sl.ssmp] || pool.samples[0];
+        if (!e) return null;
+        return { entry: e, buffer: p.rev ? reversed(e) : e.buffer, root: note - sl.stune, gain: sl.slvl / 127, panOff: sl.span / 64 };
+      }
       const s = pool.samples[p.smp] || pool.samples[0];
       if (!s) return null;
       return { entry: s, buffer: p.rev ? reversed(s) : s.buffer, root: s.root };
@@ -357,9 +365,13 @@
       let s1 = S33.clamp(p.end, 0, 1) * dur;
       if (s1 <= s0 + 0.002) s1 = Math.min(dur, s0 + 0.002);
 
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.playbackRate.value = rate;
+      const isGrain = machine === 'grain';
+      // per il granulare la "sorgente" è un nodo dove confluiscono i grani
+      const src = isGrain ? ctx.createGain() : ctx.createBufferSource();
+      if (!isGrain) {
+        src.buffer = buf;
+        src.playbackRate.value = rate;
+      }
 
       // filtro con key tracking, velocity e inviluppo
       const filt = ctx.createBiquadFilter();
@@ -383,7 +395,7 @@
       const trem = ctx.createGain();
       const amp = ctx.createGain();
       const pan = ctx.createStereoPanner();
-      pan.pan.value = S33.clamp(p.pan / 64, -1, 1);
+      pan.pan.value = S33.clamp(p.pan / 64 + (res.panOff || 0), -1, 1);
 
       // LFO per voce (profondità bloccabile per step)
       const depth = p.ldep / 127;
@@ -392,7 +404,7 @@
         tap = ctx.createGain();
         tr.lfoOut.connect(tap);
         switch (p.ldest) {
-          case 0: tap.gain.value = depth * 1200; tap.connect(src.detune); break;
+          case 0: tap.gain.value = depth * 1200; if (!isGrain) tap.connect(src.detune); break;
           case 1: tap.gain.value = depth * 4800; tap.connect(filt.detune); break;
           case 2: trem.gain.value = 1 - depth / 2; tap.gain.value = depth / 2; tap.connect(trem.gain); break;
           case 3: tap.gain.value = depth; tap.connect(pan.pan); break;
@@ -402,7 +414,7 @@
       // inviluppo d'ampiezza ADSR
       const velAmt = p.avel / 127;
       const velGain = 1 - velAmt + velAmt * velN * velN;
-      const peakG = Math.pow(p.vol / 127, 2) * (p.level / 127) * velGain;
+      const peakG = Math.pow(p.vol / 127, 2) * (p.level / 127) * velGain * (res.gain != null ? res.gain : 1);
       const a = Math.max(0.0015, S33.envTime(p.atk));
       const sus = peakG * (p.sus / 127);
       const g = amp.gain;
@@ -429,7 +441,9 @@
       });
 
       let natEnd = Infinity;
-      if (p.loop) {
+      if (isGrain) {
+        // i grani vengono pianificati dallo scheduler granulare
+      } else if (p.loop) {
         src.loop = true;
         src.loopStart = s0;
         src.loopEnd = s1;
@@ -445,10 +459,25 @@
         src, filt, amp, pan, tap, trem, shp, sends, t, note, ti, rate, s0, s1, loop: !!p.loop, dur,
         rev: !!p.rev, buffer: buf, natEnd, released: false, dead: false, rel: S33.envTime(p.rel),
       };
+      if (isGrain) {
+        voice.grain = {
+          pos: S33.clamp(p.gpos, 0, 1) * dur,
+          size: 0.005 * Math.pow(200, p.gsize / 127),
+          dens: Math.pow(120, p.gdens / 127),
+          spray: (p.gspray / 127) * 0.2 * dur + (p.gspray ? 0.004 : 0),
+          jit: (p.gjit / 127) * 100,
+          scan: (p.gscan / 64) * 2,
+          nextT: t,
+          stopAt: Infinity,
+          pitchTap: p.ldep > 0 && p.ldest === 0 ? tap : null,
+          cur: 0,
+        };
+        this._startGrains();
+      }
       if (natEnd !== Infinity && natEnd - 0.006 > t + a) {
         g.setTargetAtTime(0, natEnd - 0.006, 0.002);
       }
-      src.onended = () => this._cleanup(voice);
+      if (!isGrain) src.onended = () => this._cleanup(voice);
       tr.voices.push(voice);
       if (gate != null) this.release(voice, t + Math.max(0.005, gate));
       return voice;
@@ -465,6 +494,7 @@
       else { g.cancelScheduledValues(t); }
       g.setTargetAtTime(0, t, voice.rel / 4 + 0.001);
       const stopAt = Math.min(voice.natEnd + 0.004, t + voice.rel * 1.6 + 0.05);
+      if (voice.grain) { voice.grain.stopAt = stopAt; return; }
       try { voice.src.stop(stopAt); } catch (e) {}
     }
 
@@ -474,7 +504,55 @@
       const g = voice.amp.gain;
       if (g.cancelAndHoldAtTime) g.cancelAndHoldAtTime(t); else g.cancelScheduledValues(t);
       g.setTargetAtTime(0, t, 0.003);
+      if (voice.grain) { voice.grain.stopAt = Math.min(voice.grain.stopAt, t + 0.02); return; }
       try { voice.src.stop(t + 0.02); } catch (e) {}
+    }
+
+    /* ---------- scheduler dei grani (machine GRAIN) ---------- */
+    _startGrains() {
+      if (this._grainTimer) return;
+      this._grainTimer = setInterval(() => this._grainTick(), 20);
+    }
+    _grainTick() {
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+      const ahead = now + 0.09;
+      let any = false;
+      for (const tr of this.tracks) {
+        for (const v of tr.voices.slice()) {
+          const G = v.grain;
+          if (!G) continue;
+          any = true;
+          if (now > G.stopAt + 0.25) { this._cleanup(v); continue; }
+          while (G.nextT < ahead && G.nextT < G.stopAt) {
+            this._spawnGrain(v, G, G.nextT);
+            G.nextT += (1 / G.dens) * (0.85 + Math.random() * 0.3);
+          }
+        }
+      }
+      if (!any) { clearInterval(this._grainTimer); this._grainTimer = null; }
+    }
+    _spawnGrain(v, G, gt) {
+      const ctx = this.ctx;
+      const dur = v.dur;
+      let center = G.pos + G.scan * (gt - v.t);
+      center = ((center % dur) + dur) % dur;
+      G.cur = center;
+      const size = G.size;
+      let off = center + (Math.random() * 2 - 1) * G.spray - (size * v.rate) / 2;
+      off = S33.clamp(off, 0, Math.max(0, dur - 0.002));
+      const bs = ctx.createBufferSource();
+      bs.buffer = v.buffer;
+      bs.playbackRate.value = v.rate * Math.pow(2, ((Math.random() * 2 - 1) * G.jit) / 1200);
+      if (G.pitchTap) G.pitchTap.connect(bs.detune);
+      const env = ctx.createGain();
+      env.gain.value = 0;
+      const peak = 1 / Math.sqrt(Math.max(1, G.dens * size));
+      env.gain.setValueCurveAtTime(grainCurve(peak), gt, size);
+      bs.connect(env).connect(v.src);
+      bs.start(gt, off);
+      bs.stop(gt + size + 0.005);
+      bs.onended = () => { try { bs.disconnect(); env.disconnect(); if (G.pitchTap) G.pitchTap.disconnect(bs.detune); } catch (e) {} };
     }
 
     _cleanup(voice) {
@@ -510,6 +588,10 @@
       const out = [];
       for (const v of this.tracks[ti].voices) {
         if (v.dead || now < v.t) continue;
+        if (v.grain) {
+          if (now < v.grain.stopAt) out.push({ x: v.rev ? 1 - v.grain.cur / v.dur : v.grain.cur / v.dur, buffer: v.buffer });
+          continue;
+        }
         if (v.released && now > v.relTime + v.rel * 1.5) continue;
         let pos = v.s0 + (now - v.t) * v.rate;
         if (v.loop) {
@@ -521,6 +603,17 @@
       }
       return out;
     }
+  }
+
+  // finestra di Hann per i grani (cache per ampiezza)
+  const curveCache2 = new Map();
+  function grainCurve(peak) {
+    const k = Math.round(peak * 100);
+    if (curveCache2.has(k)) return curveCache2.get(k);
+    const N = 64, c = new Float32Array(N);
+    for (let i = 0; i < N; i++) c[i] = (k / 100) * Math.sin((Math.PI * i) / (N - 1)) ** 2;
+    curveCache2.set(k, c);
+    return c;
   }
 
   function reversed(entry) {
