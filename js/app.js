@@ -148,25 +148,22 @@
   }
 
   /* ---------- tracce ---------- */
+  const TRACK_COLORS = ['#e0745a', '#a8862f', '#4a6aa8', '#7a5fb0'];
   function renderTracks() {
     const box = $('tracks');
     if (!box.children.length) {
       project.tracks.forEach((_, i) => {
         const el = document.createElement('div');
-        el.className = 'track';
-        el.innerHTML = `
-          <div class="row"><span class="num">T${i + 1}</span><span class="name"></span><span class="led"></span></div>
-          <div class="smp"></div>
-          <div class="ctl">
-            <div class="seg"><button data-m="single">SINGLE</button><button data-m="multi">MULTI</button></div>
-            <button class="ms m" title="Mute">M</button><button class="ms s" title="Solo">S</button>
-          </div>
-          <div class="meter"></div>`;
+        el.className = 'trk';
+        el.innerHTML = `<span class="pad">${i + 1}<span class="meter"></span></span>
+          <div class="info"><span class="nm"></span><span class="sub"></span></div>
+          <button class="ms m" title="Mute">M</button><button class="ms s" title="Solo">S</button>`;
+        el.querySelector('.pad').style.background = TRACK_COLORS[i];
         el.addEventListener('pointerdown', (e) => {
-          if (e.target.closest('button')) return;
+          if (e.target.closest('button') || e.target.isContentEditable) return;
           selectTrack(i);
         });
-        el.querySelector('.name').addEventListener('dblclick', (e) => {
+        el.querySelector('.nm').addEventListener('dblclick', (e) => {
           const n = e.target;
           n.contentEditable = 'true';
           n.focus();
@@ -174,102 +171,90 @@
           const done = () => {
             n.contentEditable = 'false';
             project.tracks[i].name = (n.textContent.trim() || 'T' + (i + 1)).slice(0, 10).toUpperCase();
-            renderTracks();
+            renderAll();
             dirty();
           };
           n.onblur = done;
           n.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); n.blur(); } ev.stopPropagation(); };
         });
-        el.querySelectorAll('.seg button').forEach((b) =>
-          b.addEventListener('click', () => {
-            const t = project.tracks[i];
-            if (t.machine === b.dataset.m) return;
-            t.machine = b.dataset.m;
-            t.params.smp = 0;
-            t.steps.forEach((s) => s && delete s.locks.smp);
-            selectTrack(i);
-            dirty();
-          })
-        );
         el.querySelector('.ms.m').addEventListener('click', () => { project.tracks[i].mute = !project.tracks[i].mute; renderTracks(); dirty(); });
         el.querySelector('.ms.s').addEventListener('click', () => { project.tracks[i].solo = !project.tracks[i].solo; renderTracks(); dirty(); });
         box.appendChild(el);
       });
-      const grid = document.createElement('div');
-      grid.className = 'auxgrid';
+      const grid = $('auxgrid');
       S33.AUX_IDS.forEach((id) => {
         const b = document.createElement('button');
-        b.className = 'auxbtn ' + id;
+        b.className = 'auxbtn ' + (id.startsWith('bus') ? 'bus' : id === 'mix' ? 'mixb' : 'fxs');
         b.dataset.id = id;
-        b.innerHTML = S33.AUX[id].title + '<span class="am"></span>';
-        b.onclick = () => { ui.aux = ui.aux === id ? null : id; renderAll(); };
+        b.innerHTML = '<span class="dt"></span>' + S33.AUX[id].title + '<span class="am"></span>';
+        b.onclick = () => {
+          ui.aux = ui.aux === id ? null : id;
+          ui.focus = ui.aux ? 'aux' : ui.trackFocus;
+          buildAuxKnobs();
+          renderAll();
+        };
         grid.appendChild(b);
       });
-      box.appendChild(grid);
     }
-    box.querySelectorAll('.auxbtn').forEach((b) => b.classList.toggle('on', b.dataset.id === ui.aux));
+    $('auxgrid').querySelectorAll('.auxbtn').forEach((b) => b.classList.toggle('on', b.dataset.id === ui.aux));
     project.tracks.forEach((t, i) => {
       const el = box.children[i];
       el.classList.toggle('sel', i === ui.track && !ui.aux);
-      const nm = el.querySelector('.name');
+      const nm = el.querySelector('.nm');
       if (nm.contentEditable !== 'true') nm.textContent = t.name;
       const e = smpList(t)[t.params.smp];
-      el.querySelector('.smp').textContent = (t.machine === 'multi' ? '◆ ' : '● ') + (e ? e.name : '—') + '  ·  ' + t.length + ' st' +
-        (t.params.out ? '  → B' + t.params.out : '') + (t.params.chord ? '  ♫ ' + S33.CHORDS[t.params.chord].label : '');
-      el.querySelectorAll('.seg button').forEach((b) => b.classList.toggle('on', b.dataset.m === t.machine));
+      el.querySelector('.sub').textContent = (t.machine === 'multi' ? '◆ ' : '') + (e ? e.name : '—') + ' · ' + t.length + ' st' +
+        (t.params.out ? ' · → B' + t.params.out : '') + (t.params.chord ? ' · ♫ ' + S33.CHORDS[t.params.chord].label : '');
       el.querySelector('.ms.m').classList.toggle('on', t.mute);
       el.querySelector('.ms.s').classList.toggle('on', t.solo);
     });
+    document.documentElement.style.setProperty('--tc', TRACK_COLORS[ui.track]);
   }
   function selectTrack(i) {
     ui.track = i;
     ui.aux = null;
+    if (ui.focus === 'aux') ui.focus = ui.trackFocus;
     ui.selStep = null;
     ui.heldStep = null;
     ui.stepPage = Math.min(ui.stepPage, Math.ceil(track().length / 16) - 1);
     renderAll();
   }
 
-  /* ---------- pagine parametri e manopole ---------- */
-  function renderTabs() {
-    const box = $('tabs');
-    if (!box.children.length) {
-      S33.PAGE_NAMES.forEach((n, i) => {
-        const b = document.createElement('button');
-        b.innerHTML = n + '<span class="lk"></span>';
-        b.title = 'Tasto ⇧' + (i + 1);
-        b.onclick = () => { ui.page = n; ui.aux = null; renderAll(); };
-        box.appendChild(b);
-      });
-      const ax = document.createElement('button');
-      ax.className = 'auxtab';
-      box.appendChild(ax);
-    }
-    const st = activeStep();
-    const ax = box.lastChild;
-    ax.style.display = ui.aux ? '' : 'none';
-    if (ui.aux) { ax.textContent = S33.AUX[ui.aux].title; ax.classList.add('on'); }
-    S33.PAGE_NAMES.forEach((n, i) => {
-      const b = box.children[i];
-      b.classList.toggle('on', !ui.aux && n === ui.page);
-      b.classList.toggle('haslock', !!(st && S33.PAGES[n].some((k) => k && st.locks[k] !== undefined)));
-    });
-  }
+  /* ---------- pannelli, manopole e controlli ---------- */
+  const PANEL_KNOBS = {
+    src: ['smp', 'tune', 'fine', 'start', 'end', 'level'],
+    flt: ['freq', 'reso', 'fenv', 'fatk', 'fdec', 'ktrk', 'fvel'],
+    amp: ['atk', 'dec', 'sus', 'rel', 'pan', 'vol', 'avel'],
+    fx: ['drive', 'bits', 'sdly', 'srev', 'scho'],
+    lfo: ['lrate', 'ldep'],
+  };
+  // cosa controllano i knob 1-8 dell'LPD8 per ogni pannello
+  const FOCUS_KEYS = {
+    src: ['smp', 'tune', 'fine', 'start', 'end', 'level', 'loop', 'rev'],
+    flt: ['freq', 'reso', 'fenv', 'fatk', 'fdec', 'ktrk', 'fvel', 'ftype'],
+    amp: ['atk', 'dec', 'sus', 'rel', 'pan', 'vol', 'avel'],
+    fx: ['drive', 'bits', 'sdly', 'srev', 'scho', 'out'],
+    lfo: ['lrate', 'ldep', 'lwave', 'ldest', 'lsync'],
+    trig: ['note', 'vel', 'len', 'micro', 'cond', 'chord', 'inv', 'voic'],
+  };
+  const FOCUS_ORDER = ['src', 'flt', 'amp', 'fx', 'lfo', 'trig'];
+  ui.focus = 'src';
+  ui.trackFocus = 'src';
+  const focusKeys = () => (ui.focus === 'aux' ? S33.AUX[ui.aux].keys : FOCUS_KEYS[ui.focus]);
 
-  /* ---------- manopole: dispatch tra pagine di traccia e tracce ausiliarie ---------- */
   const auxGroup = () => project.fx[S33.AUX[ui.aux].group];
-  const keysNow = () => (ui.aux ? S33.AUX[ui.aux].keys : S33.PAGES[ui.page]);
-  const kDef = (k) => (ui.aux ? S33.AUXP[k] : P[k]);
-  const kGet = (k) => (ui.aux ? auxGroup()[k] : getVal(k));
-  const kMax = (k) => (ui.aux ? S33.AUXP[k].max : paramMax(k));
-  const kFmt = (k, v) => (ui.aux ? (S33.AUXP[k].fmt ? S33.AUXP[k].fmt(v) : String(Math.round(v))) : fmtVal(k, v));
+  const kDef = (k, aux) => (aux ? S33.AUXP[k] : P[k]);
+  const kGet = (k, aux) => (aux ? auxGroup()[k] : getVal(k));
+  const kMax = (k, aux) => (aux ? S33.AUXP[k].max : paramMax(k));
+  const kFmt = (k, v, aux) => (aux ? (S33.AUXP[k].fmt ? S33.AUXP[k].fmt(v) : String(Math.round(v))) : fmtVal(k, v));
+  const isAuxKey = (k) => !!(ui.aux && S33.AUXP[k] && !P[k]);
   let fxT = null;
   function applyFx() {
     clearTimeout(fxT);
     fxT = setTimeout(() => engine.applyFx(project.fx, project.bpm), 30);
   }
-  function kSet(k, v, opts) {
-    if (!ui.aux) return setVal(k, v, opts);
+  function kSet(k, v, aux, opts) {
+    if (!aux) return setVal(k, v, opts);
     const d = S33.AUXP[k];
     v = Math.round(S33.clamp(v, d.min, d.max));
     const g = auxGroup();
@@ -279,107 +264,212 @@
     renderKnobs();
     dirty();
   }
-  function kReset(k) {
-    if (!ui.aux) return resetVal(k);
-    kSet(k, S33.AUXP[k].def);
+  function kReset(k, aux) {
+    if (!aux) return resetVal(k);
+    kSet(k, S33.AUXP[k].def, true);
+  }
+  function setFocus(f) {
+    if (ui.focus === f) return;
+    ui.focus = f;
+    if (f !== 'aux') ui.trackFocus = f;
+    renderKnobs();
   }
 
-  const ARC = 270, R = 22, CX = 29, CY = 29;
+  const ARC = 270, R = 19, CX = 23, CY = 23;
   function arcPath(a0, a1) {
     const p = (a) => {
       const r = ((a - 90) * Math.PI) / 180;
       return [CX + R * Math.cos(r), CY + R * Math.sin(r)];
     };
     const [x0, y0] = p(a0), [x1, y1] = p(a1);
-    const large = Math.abs(a1 - a0) > 180 ? 1 : 0;
-    const sweep = a1 > a0 ? 1 : 0;
-    return `M${x0.toFixed(2)},${y0.toFixed(2)} A${R},${R} 0 ${large} ${sweep} ${x1.toFixed(2)},${y1.toFixed(2)}`;
+    return `M${x0.toFixed(2)},${y0.toFixed(2)} A${R},${R} 0 ${Math.abs(a1 - a0) > 180 ? 1 : 0} 1 ${x1.toFixed(2)},${y1.toFixed(2)}`;
   }
+  const BG_ARC = arcPath(-135, 135);
 
-  const knobEls = [];
-  function buildKnobs() {
-    const box = $('knobs');
-    for (let i = 0; i < 8; i++) {
-      const el = document.createElement('div');
-      el.className = 'knob';
-      el.innerHTML = `<span class="cc">${i + 1}</span>
-        <svg viewBox="0 0 58 58"><path class="bg" fill="none" stroke="#2a2e33" stroke-width="5" stroke-linecap="round"/>
-        <path class="fg" fill="none" stroke="#ff7a1a" stroke-width="5" stroke-linecap="round"/>
-        <circle cx="29" cy="29" r="15" fill="#1d2024" stroke="#33383e"/>
-        <line class="ind" x1="29" y1="29" x2="29" y2="17" stroke="#e9e4d8" stroke-width="2" stroke-linecap="round"/></svg>
-        <span class="lab"></span><span class="val"></span>`;
-      el.querySelector('.bg').setAttribute('d', arcPath(-ARC / 2, ARC / 2));
-      attachKnob(el, i);
-      knobEls.push(el);
-      box.appendChild(el);
-    }
-  }
-  function attachKnob(el, i) {
-    let startY, startV, k;
+  const knobs = []; // {el, k, aux}
+  function makeKnob(k, aux) {
+    const el = document.createElement('div');
+    el.className = 'knob';
+    el.innerHTML = `<svg viewBox="0 0 46 46" aria-hidden="true"><path class="bg" d="${BG_ARC}" fill="none" stroke-width="4" stroke-linecap="round"/>
+      <path class="fg" fill="none" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="23" cy="23" r="13" fill="#161616"/>
+      <line class="ind" x1="23" y1="23" x2="23" y2="13" stroke="#efe6d6" stroke-width="2.5" stroke-linecap="round"/></svg>
+      <span class="kb"></span><span class="lab"></span><span class="val"></span>`;
+    const o = { el, k, aux };
+    if (!k) { el.classList.add('empty'); return o; }
+    let y0 = null, v0 = 0;
     el.addEventListener('pointerdown', (e) => {
-      k = keysNow()[i];
-      if (!k) return;
       el.setPointerCapture(e.pointerId);
-      startY = e.clientY;
-      startV = kGet(k);
+      y0 = e.clientY;
+      v0 = kGet(k, aux);
       e.preventDefault();
     });
     el.addEventListener('pointermove', (e) => {
-      if (startY == null || !k) return;
-      const range = kMax(k) - kDef(k).min;
-      const dy = startY - e.clientY;
-      let per = range <= 40 ? 1 / 10 : range / 200; // unità per pixel
+      if (y0 == null) return;
+      const range = kMax(k, aux) - kDef(k, aux).min;
+      let per = range <= 40 ? 1 / 10 : range / 200;
       if (e.shiftKey) per /= 6;
-      kSet(k, startV + dy * per);
+      kSet(k, v0 + (y0 - e.clientY) * per, aux);
     });
-    const end = () => { startY = null; };
+    const end = () => { y0 = null; };
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
     el.addEventListener('wheel', (e) => {
-      const kk = keysNow()[i];
-      if (!kk) return;
       e.preventDefault();
-      const range = kMax(kk) - kDef(kk).min;
-      const inc = range <= 40 ? 1 : kDef(kk).step < 1 ? range / 100 : Math.max(1, Math.round(range / 64));
-      kSet(kk, kGet(kk) + (e.deltaY < 0 ? inc : -inc) * (e.shiftKey ? 0.25 : 1));
+      const range = kMax(k, aux) - kDef(k, aux).min;
+      const inc = range <= 40 ? 1 : kDef(k, aux).step < 1 ? range / 100 : Math.max(1, Math.round(range / 64));
+      kSet(k, kGet(k, aux) + (e.deltaY < 0 ? inc : -inc) * (e.shiftKey ? 0.25 : 1), aux);
     }, { passive: false });
-    el.addEventListener('dblclick', () => {
-      const kk = keysNow()[i];
-      if (kk) kReset(kk);
+    el.addEventListener('dblclick', () => kReset(k, aux));
+    return o;
+  }
+  function buildPanels() {
+    document.querySelectorAll('[data-knobs]').forEach((box) => {
+      const id = box.dataset.knobs;
+      if (id === 'aux') return;
+      PANEL_KNOBS[id].forEach((k) => {
+        const o = makeKnob(k, false);
+        o.panel = id;
+        knobs.push(o);
+        box.appendChild(o.el);
+      });
+    });
+    // segmenti e interruttori (anche loro bloccabili per step)
+    document.querySelectorAll('[data-seg]').forEach((seg) => {
+      const k = seg.dataset.seg;
+      seg.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+        if (k === 'machine') return setMachine(b.dataset.v);
+        setVal(k, Number(b.dataset.v));
+        renderAfterControl(k);
+      }));
+    });
+    document.querySelectorAll('[data-tog]').forEach((b) => b.addEventListener('click', () => {
+      const k = b.dataset.tog;
+      setVal(k, getVal(k) ? 0 : 1);
+      renderAfterControl(k);
+    }));
+    // clic in un pannello = l'LPD8 controlla quel pannello
+    document.querySelectorAll('[data-panel]').forEach((p) => p.addEventListener('pointerdown', () => {
+      setFocus(p.dataset.panel === 'aux' ? 'aux' : p.dataset.panel);
+    }, true));
+    // celle TRIG
+    const tc = $('trigCells');
+    FOCUS_KEYS.trig.forEach((k, i) => {
+      const c = document.createElement('div');
+      c.className = 'tc';
+      c.dataset.k = k;
+      c.innerHTML = `<small>${P[k].label}<span class="kb">K${i + 1}</span></small><span class="v"></span>`;
+      let y0 = null, v0 = 0;
+      c.addEventListener('pointerdown', (e) => { c.setPointerCapture(e.pointerId); y0 = e.clientY; v0 = getVal(k); });
+      c.addEventListener('pointermove', (e) => {
+        if (y0 == null) return;
+        const range = paramMax(k) - P[k].min;
+        setVal(k, v0 + (y0 - e.clientY) * (range <= 40 ? 1 / 10 : range / 200) * (e.shiftKey ? 1 / 6 : 1));
+      });
+      c.addEventListener('pointerup', () => (y0 = null));
+      c.addEventListener('wheel', (e) => { e.preventDefault(); setVal(k, getVal(k) + (e.deltaY < 0 ? 1 : -1)); }, { passive: false });
+      c.addEventListener('dblclick', () => resetVal(k));
+      tc.appendChild(c);
     });
   }
-  function renderKnobs() {
-    const keys = keysNow();
-    const st = ui.aux ? null : activeStep();
-    keys.forEach((k, i) => {
-      const el = knobEls[i];
-      el.classList.toggle('empty', !k);
-      if (!k) {
-        el.querySelector('.lab').textContent = '';
-        el.querySelector('.val').textContent = '';
-        el.querySelector('.fg').setAttribute('d', '');
-        el.querySelector('.ind').setAttribute('transform', 'rotate(-135 29 29)');
-        el.classList.remove('locked', 'nolock');
-        return;
-      }
-      const v = kGet(k);
-      const D = kDef(k);
-      const mn = D.min, mx = kMax(k);
-      const f = mx > mn ? (v - mn) / (mx - mn) : 0;
-      const a = -ARC / 2 + f * ARC;
-      const a0 = mn < 0 ? -ARC / 2 + ((0 - mn) / (mx - mn)) * ARC : -ARC / 2;
-      const fg = el.querySelector('.fg');
-      fg.setAttribute('d', Math.abs(a - a0) < 0.5 ? '' : arcPath(Math.min(a0, a), Math.max(a0, a)));
-      const locked = !ui.aux && isLocked(k);
-      fg.setAttribute('stroke', locked ? '#ffd23f' : ui.aux ? '#5fd0c4' : D.trig && st ? '#5fd0c4' : '#ff7a1a');
-      el.querySelector('.ind').setAttribute('transform', `rotate(${a} 29 29)`);
-      el.querySelector('.lab').textContent = D.label;
-      let txt = kFmt(k, v);
-      if (k === 'note' && st && st.notes.length > 1) txt += ' +' + (st.notes.length - 1);
-      el.querySelector('.val').textContent = txt;
-      el.classList.toggle('locked', locked);
-      el.classList.toggle('nolock', !!(st && !D.trig && !D.lock));
+  function renderAfterControl(k) {
+    if (k === 'out' || k === 'machine') renderTracks();
+    renderKnobs();
+  }
+  function setMachine(m) {
+    const t = track();
+    if (t.machine === m) return;
+    t.machine = m;
+    t.params.smp = 0;
+    t.steps.forEach((s) => s && delete s.locks.smp);
+    renderAll();
+    dirty();
+  }
+  function buildAuxKnobs() {
+    const box = document.querySelector('[data-knobs="aux"]');
+    knobs.splice(0, knobs.length, ...knobs.filter((o) => !o.aux));
+    box.innerHTML = '';
+    if (!ui.aux) return;
+    S33.AUX[ui.aux].keys.forEach((k) => {
+      const o = makeKnob(k, true);
+      o.panel = 'aux';
+      knobs.push(o);
+      box.appendChild(o.el);
     });
+  }
+  const AUX_INFO = {
+    bus1: 'filtro · drive · compressore → MAIN', bus2: 'filtro · drive · compressore → MAIN',
+    dly: 'mandata A · delay ping-pong a tempo', rev: 'mandata B · riverbero', cho: 'mandata C · chorus stereo',
+    mix: 'livelli di traccia e master',
+  };
+  function renderTabs() {
+    // vista traccia o vista bus/fx/mix
+    $('trackView').hidden = !!ui.aux;
+    $('auxView').hidden = !ui.aux;
+    if (ui.aux) {
+      const p = $('auxPanel');
+      p.className = 'panel aux' + (['dly', 'rev', 'cho'].includes(ui.aux) ? ' teal' : ui.aux === 'mix' ? ' mixc' : '');
+      $('auxTitle').textContent = S33.AUX[ui.aux].title;
+      const routed = project.tracks.filter((t) => (ui.aux === 'bus1' && t.params.out === 1) || (ui.aux === 'bus2' && t.params.out === 2));
+      $('auxInfo').textContent = AUX_INFO[ui.aux] + (ui.aux.startsWith('bus') ? ' · IN: ' + (routed.length ? routed.map((t) => t.name).join(', ') : 'nessuna traccia') : '');
+    }
+  }
+  function renderKnobs() {
+    const st = activeStep();
+    const fk = focusKeys();
+    knobs.forEach((o) => {
+      const { el, k, aux } = o;
+      if (!k) return;
+      if (aux && !ui.aux) return;
+      const D = kDef(k, aux);
+      const v = kGet(k, aux);
+      const mn = D.min, mx = kMax(k, aux);
+      const f = mx > mn ? (v - mn) / (mx - mn) : 0;
+      const a = -135 + f * ARC;
+      const a0 = mn < 0 ? -135 + ((0 - mn) / (mx - mn)) * ARC : -135;
+      el.querySelector('.fg').setAttribute('d', Math.abs(a - a0) < 0.5 ? '' : arcPath(Math.min(a0, a), Math.max(a0, a)));
+      el.querySelector('.ind').setAttribute('transform', `rotate(${a} 23 23)`);
+      el.querySelector('.lab').textContent = D.label;
+      el.querySelector('.val').textContent = kFmt(k, v, aux);
+      el.classList.toggle('locked', !aux && isLocked(k));
+      el.classList.toggle('nolock', !aux && !!(st && !D.lock));
+      const focused = (aux && ui.focus === 'aux') || (!aux && ui.focus === o.panel);
+      const idx = focused ? fk.indexOf(k) : -1;
+      el.querySelector('.kb').textContent = idx >= 0 ? 'K' + (idx + 1) : '';
+      el.querySelector('.kb').style.visibility = idx >= 0 ? '' : 'hidden';
+    });
+    document.querySelectorAll('[data-seg]').forEach((seg) => {
+      const k = seg.dataset.seg;
+      const v = k === 'machine' ? track().machine : String(getVal(k));
+      const lk = k !== 'machine' && isLocked(k);
+      seg.querySelectorAll('button').forEach((b) => {
+        b.classList.toggle('on', b.dataset.v === String(v));
+        b.classList.toggle('lk', lk && b.dataset.v === String(v));
+      });
+    });
+    document.querySelectorAll('[data-tog]').forEach((b) => {
+      const k = b.dataset.tog;
+      b.classList.toggle('on', !!getVal(k));
+      b.classList.toggle('lk', isLocked(k));
+    });
+    // pannelli: focus LPD8 e presenza di p-lock
+    document.querySelectorAll('[data-panel]').forEach((p) => {
+      const id = p.dataset.panel;
+      p.classList.toggle('focus', id === ui.focus);
+      const keys = FOCUS_KEYS[id] || [];
+      p.classList.toggle('haslock', !!(st && id !== 'trig' && keys.some((k) => st.locks[k] !== undefined)));
+    });
+    // celle TRIG
+    document.querySelectorAll('#trigCells .tc').forEach((c) => {
+      const k = c.dataset.k;
+      let txt = fmtVal(k, getVal(k));
+      if (k === 'note' && st && st.notes.length > 1) txt += ' ×' + st.notes.length;
+      c.querySelector('.v').textContent = txt;
+      c.classList.toggle('set', !!st && !!P[k].trig);
+      c.classList.toggle('trk', !P[k].trig);
+    });
+    drawPanels();
+    renderInfo();
   }
 
   /* ---------- step ---------- */
@@ -389,7 +479,7 @@
     for (let i = 0; i < 16; i++) {
       const el = document.createElement('div');
       el.className = 'step';
-      el.innerHTML = '<span class="n"></span><span class="cd"></span><span class="nt"></span><span class="vbar"></span>';
+      el.innerHTML = '<span class="led"></span><span class="vbar"></span><span class="n"></span><span class="cd"></span><span class="nt"></span>';
       attachStep(el, i);
       stepEls.push(el);
       box.appendChild(el);
@@ -499,7 +589,7 @@
       el.querySelector('.nt').textContent = s
         ? (s.notes.length > 1 ? S33.noteName(s.notes[0]) + ' ×' + s.notes.length : S33.noteName(s.notes[0])) + (s.micro ? ' ' + (s.micro > 0 ? '›' : '‹') : '')
         : '';
-      el.querySelector('.vbar').style.width = s ? (s.vel / 127) * 100 + '%' : '0';
+      el.querySelector('.vbar').style.width = s ? Math.round((s.vel / 127) * 34) + 'px' : '0';
       let lk = el.querySelector('.lk');
       const has = s && Object.keys(s.locks).length;
       if (has && !lk) { lk = document.createElement('span'); lk.className = 'lk'; el.appendChild(lk); }
@@ -529,6 +619,7 @@
       b.classList.toggle('play', pos >= 0 && Math.floor(pos / 16) === p);
     });
     $('trackLen').textContent = t.length;
+    $('seqTrack').textContent = 'T' + (ui.track + 1) + ' · ' + t.name;
   }
 
   /* ---------- pool campioni ---------- */
@@ -642,13 +733,15 @@
     window.addEventListener('dragover', (e) => {
       e.preventDefault();
       clear();
+      document.body.classList.add('dragging');
       overTarget = e.target.closest && e.target.closest('#dropMulti') ? 'multi' : 'single';
       (overTarget === 'multi' ? zones.dropMulti : zones.dropSamples).classList.add('over');
     });
-    window.addEventListener('dragleave', (e) => { if (!e.relatedTarget) clear(); });
+    window.addEventListener('dragleave', (e) => { if (!e.relatedTarget) { clear(); document.body.classList.remove('dragging'); } });
     window.addEventListener('drop', (e) => {
       e.preventDefault();
       clear();
+      document.body.classList.remove('dragging');
       const files = [...e.dataTransfer.files].filter((f) => /audio|\.(wav|aiff?|m4a|mp3|flac|caf)$/i.test(f.type + f.name));
       if (!files.length) {
         const pf = [...e.dataTransfer.files].find((f) => /\.(prisma|json)$/i.test(f.name));
@@ -665,7 +758,7 @@
     $('fileMulti').onchange = (e) => { addMulti([...e.target.files]); e.target.value = ''; };
   }
 
-  /* ---------- forma d'onda ---------- */
+  /* ---------- grafici dei pannelli ---------- */
   const peaksCache = new WeakMap();
   function peaks(buf, w) {
     let c = peaksCache.get(buf);
@@ -698,117 +791,238 @@
       const note = ui.lastNote[ui.track];
       let best = m.zones[0];
       m.zones.forEach((z) => { if (Math.abs(z.root - note) < Math.abs(best.root - note)) best = z; });
-      return { buffer: best.buffer, label: m.name + ' · zona ' + best.name, multi: m };
+      return { buffer: best.buffer, label: m.name + ' · ZONA ' + best.name, short: m.name, zone: best, multi: m };
     }
     const s = pool.samples[smp];
-    return s ? { buffer: s.buffer, label: s.name + ' · root ' + S33.noteName(s.root) } : null;
+    return s ? { buffer: s.buffer, label: s.name + ' · ROOT ' + S33.noteName(s.root), short: s.name } : null;
   }
-  function drawWave() {
-    const cv = $('wave');
+  function prepCanvas(cv) {
     const dpr = window.devicePixelRatio || 1;
     const W = cv.clientWidth, H = cv.clientHeight;
-    if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+    if (!W || !H) return null;
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
     const g = cv.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, W, H);
-    if (ui.aux) return drawScope(g, W, H);
+    return { g, W, H };
+  }
+  const CREAM = '#efe6d6';
+  function drawWave() {
+    const c = prepCanvas($('wave'));
+    if (!c) return;
+    const { g, W, H } = c;
     const e = currentEntry();
-    const top = 28, h = H - top - 10, mid = top + h / 2;
-    g.strokeStyle = '#14181b';
-    g.lineWidth = 1;
-    for (let x = 0; x < W; x += W / 16) { g.beginPath(); g.moveTo(x + 0.5, top); g.lineTo(x + 0.5, H - 10); g.stroke(); }
+    $('waveLabel').textContent = e ? e.label : '—';
+    const top = 26, bottom = e && e.multi ? 28 : 10;
+    const h = H - top - bottom, mid = top + h / 2;
     if (!e) return;
     const st = getVal('start'), en = getVal('end'), loop = getVal('loop'), rev = getVal('rev');
     const p = peaks(e.buffer, Math.max(1, Math.floor(W)));
     const xs = st * W, xe = Math.max(xs + 1, en * W);
+    g.fillStyle = 'rgba(0,0,0,0.22)';
+    g.fillRect(0, 0, xs, H);
+    g.fillRect(xe, 0, W - xe, H);
     for (let x = 0; x < W; x++) {
       const inside = x >= xs && x <= xe;
-      g.fillStyle = inside ? '#ffb36b' : '#3a3f45';
+      g.fillStyle = inside ? 'rgba(239,230,214,0.92)' : 'rgba(201,214,238,0.28)';
       const mn = p[x * 2], mx = p[x * 2 + 1];
       const y0 = mid - mx * (h / 2) * 0.95, y1 = mid - mn * (h / 2) * 0.95;
       g.fillRect(x, y0, 1, Math.max(1, y1 - y0));
     }
-    g.fillStyle = 'rgba(255,122,26,0.9)';
-    g.fillRect(xs, top, 2, h);
-    g.fillRect(xe - 2, top, 2, h);
+    g.fillStyle = '#f4a3c0';
+    g.fillRect(xs, 0, 2, H);
+    g.fillRect(xe - 2, 0, 2, H);
     if (loop) {
-      g.strokeStyle = '#5fd0c4';
-      g.beginPath(); g.moveTo(xs, H - 6); g.lineTo(xe, H - 6); g.stroke();
-      g.fillStyle = '#5fd0c4'; g.font = '9px ' + getComputedStyle(document.body).fontFamily;
-      g.fillText('LOOP', xs + 4, H - 9);
+      g.fillStyle = '#9fe8f0';
+      g.fillRect(xs, H - bottom + 2, xe - xs, 2);
     }
-    if (rev) { g.fillStyle = '#5fd0c4'; g.font = '9px monospace'; g.fillText('REV ◀', W - 44, H - 9); }
-    // playhead delle voci
+    if (rev) { g.fillStyle = CREAM; g.font = '800 10px Archivo, sans-serif'; g.fillText('◀ REV', W - 52, 18); }
     g.fillStyle = '#ffffff';
     engine.voicePositions(ui.track).forEach((v) => {
       if (v.buffer !== e.buffer && !rev) return;
       g.fillRect(v.x * W, top, 1.5, h);
     });
-    // zone del multicampione
-    if (e.multi) {
-      const z = e.multi.zones;
-      const lo = z[0].root, hi = z[z.length - 1].root;
-      g.fillStyle = '#4a4f56';
-      g.font = '9px monospace';
-      g.fillText(z.length + ' ZONE · ' + S33.noteName(lo) + '–' + S33.noteName(hi), W / 2 - 50, H - 9);
+  }
+  function renderZones() {
+    const e = currentEntry();
+    const box = $('zones');
+    if (!e || !e.multi) { box.innerHTML = ''; return; }
+    const key = e.multi.id + ':' + e.zone.root;
+    if (box.dataset.key === key) return;
+    box.dataset.key = key;
+    box.innerHTML = e.multi.zones.map((z) => `<span class="${z === e.zone ? 'on' : ''}">${z.name}</span>`).join('');
+  }
+  // curva reale del filtro (stessa formula del motore, nota C3 a velocity 100)
+  const fProbe = engine.ctx.createBiquadFilter();
+  const F_N = 160;
+  const fFreqs = new Float32Array(F_N), fMag = new Float32Array(F_N), fPh = new Float32Array(F_N);
+  for (let i = 0; i < F_N; i++) fFreqs[i] = 20 * Math.pow(1000, i / (F_N - 1));
+  function drawFilter() {
+    const c = prepCanvas($('fcurve'));
+    if (!c) return;
+    const { g, W, H } = c;
+    const ftype = getVal('ftype'), freq = getVal('freq'), reso = getVal('reso'), fvel = getVal('fvel');
+    let base = S33.cutoffHz(freq) * Math.pow(2, (100 / 127 - 1) * (fvel / 127) * 4);
+    fProbe.type = ['lowpass', 'bandpass', 'highpass'][ftype];
+    fProbe.frequency.value = S33.clamp(base, 20, 20000);
+    fProbe.Q.value = ftype === 1 ? 0.7 + (reso / 127) * 12 : 0.5 + Math.pow(reso / 127, 2) * 22;
+    fProbe.getFrequencyResponse(fFreqs, fMag, fPh);
+    const y = (m) => {
+      const db = 20 * Math.log10(Math.max(1e-5, m));
+      return H * 0.42 - (db / 30) * H * 0.42;
+    };
+    g.strokeStyle = 'rgba(255,255,255,0.08)';
+    [0.25, 0.5, 0.75].forEach((f) => { g.beginPath(); g.moveTo(W * f, 0); g.lineTo(W * f, H); g.stroke(); });
+    g.beginPath();
+    for (let i = 0; i < F_N; i++) {
+      const xx = (i / (F_N - 1)) * W, yy = S33.clamp(y(fMag[i]), 2, H + 2);
+      i ? g.lineTo(xx, yy) : g.moveTo(xx, yy);
+    }
+    g.lineTo(W, H + 2); g.lineTo(0, H + 2); g.closePath();
+    g.fillStyle = 'rgba(239,230,214,0.13)';
+    g.fill();
+    g.beginPath();
+    for (let i = 0; i < F_N; i++) {
+      const xx = (i / (F_N - 1)) * W, yy = S33.clamp(y(fMag[i]), 2, H + 2);
+      i ? g.lineTo(xx, yy) : g.moveTo(xx, yy);
+    }
+    g.strokeStyle = isLocked('freq') || isLocked('reso') ? '#ffd23f' : CREAM;
+    g.lineWidth = 2;
+    g.stroke();
+    // inviluppo del filtro: freccia verso dove arriva
+    const fenv = getVal('fenv');
+    if (fenv) {
+      const peak = S33.clamp(base * Math.pow(2, (fenv / 64) * 7), 20, 20000);
+      const x0 = (Math.log(base / 20) / Math.log(1000)) * W, x1 = (Math.log(peak / 20) / Math.log(1000)) * W;
+      g.strokeStyle = 'rgba(239,230,214,0.5)';
+      g.setLineDash([3, 3]);
+      g.beginPath(); g.moveTo(x0, H - 8); g.lineTo(x1, H - 8); g.stroke();
+      g.setLineDash([]);
+      g.fillStyle = CREAM;
+      g.beginPath(); g.arc(x1, H - 8, 3, 0, Math.PI * 2); g.fill();
     }
   }
-  const AUX_INFO = {
-    bus1: 'filtro, drive, compressore → MAIN', bus2: 'filtro, drive, compressore → MAIN',
-    dly: 'mandata A · delay ping-pong a tempo', rev: 'mandata B · riverbero', cho: 'mandata C · chorus stereo',
-    mix: 'livelli di traccia e master',
-  };
+  function drawAdsr() {
+    const c = prepCanvas($('adsr'));
+    if (!c) return;
+    const { g, W, H } = c;
+    const tw = (v) => 0.06 + Math.log10(1 + S33.envTime(v) * 30) / Math.log10(1 + 10 * 30);
+    const a = tw(getVal('atk')), d = tw(getVal('dec')), r = tw(getVal('rel')), s = getVal('sus') / 127;
+    const hold = 0.35, tot = a + d + hold + r, k = (W - 16) / tot;
+    const top = 8, bot = H - 6, hh = bot - top;
+    const pts = [[8, bot], [8 + a * k, top], [8 + (a + d) * k, top + (1 - s) * hh], [8 + (a + d + hold) * k, top + (1 - s) * hh], [8 + tot * k, bot]];
+    g.beginPath();
+    pts.forEach(([x, yy], i) => (i ? g.lineTo(x, yy) : g.moveTo(x, yy)));
+    g.lineTo(pts[0][0], bot);
+    g.fillStyle = 'rgba(239,230,214,0.12)';
+    g.fill();
+    g.beginPath();
+    pts.forEach(([x, yy], i) => (i ? g.lineTo(x, yy) : g.moveTo(x, yy)));
+    g.strokeStyle = ['atk', 'dec', 'sus', 'rel'].some(isLocked) ? '#ffd23f' : CREAM;
+    g.lineWidth = 2;
+    g.stroke();
+    g.fillStyle = CREAM;
+    pts.slice(1, 4).forEach(([x, yy]) => { g.beginPath(); g.arc(x, yy, 3, 0, Math.PI * 2); g.fill(); });
+  }
+  function drawLfo() {
+    const c = prepCanvas($('lfoview'));
+    if (!c) return;
+    const { g, W, H } = c;
+    const buf = engine.lfoBuffers[getVal('lwave')].getChannelData(0);
+    const dep = 0.2 + 0.8 * (getVal('ldep') / 127);
+    g.beginPath();
+    for (let x = 0; x <= W; x++) {
+      const ph = ((x / W) * 2) % 1;
+      const v = buf[Math.floor(ph * (buf.length - 1))];
+      const yy = H / 2 - v * dep * (H / 2 - 5);
+      x ? g.lineTo(x, yy) : g.moveTo(x, yy);
+    }
+    g.strokeStyle = isLocked('ldep') ? '#ffd23f' : CREAM;
+    g.lineWidth = 2;
+    g.stroke();
+  }
+  let panelsT = 0;
+  function drawPanels() {
+    // limita i ridisegni durante il trascinamento delle manopole
+    cancelAnimationFrame(panelsT);
+    panelsT = requestAnimationFrame(() => {
+      if (ui.aux) return;
+      drawFilter();
+      drawAdsr();
+      drawLfo();
+      renderZones();
+    });
+  }
   const scopeBuf = new Float32Array(2048);
-  function drawScope(g, W, H) {
+  function drawScope() {
+    const c = prepCanvas($('scope'));
+    if (!c) return;
+    const { g, W, H } = c;
     const an = engine.auxAnalyser(ui.aux);
     const n = an.fftSize;
     const buf = scopeBuf.subarray(0, n);
     an.getFloatTimeDomainData(buf);
-    const top = 28, h = H - top - 10, mid = top + h / 2;
-    g.strokeStyle = '#1a2a28';
+    const mid = H / 2;
+    g.strokeStyle = 'rgba(255,255,255,0.08)';
     g.beginPath(); g.moveTo(0, mid + 0.5); g.lineTo(W, mid + 0.5); g.stroke();
-    g.strokeStyle = '#5fd0c4';
-    g.lineWidth = 1.5;
+    g.strokeStyle = CREAM;
+    g.lineWidth = 1.6;
     g.beginPath();
     for (let i = 0; i < n; i++) {
-      const x = (i / (n - 1)) * W, y = mid - buf[i] * (h / 2) * 0.95;
-      i ? g.lineTo(x, y) : g.moveTo(x, y);
+      const x = (i / (n - 1)) * W, yy = mid - buf[i] * (H / 2) * 0.9;
+      i ? g.lineTo(x, yy) : g.moveTo(x, yy);
     }
     g.stroke();
     if (ui.aux === 'mix') {
-      // livelli di tutte le tracce
       const lv = [0, 1, 2, 3].map((i) => engine.meterLevel(i)).concat([engine.analyserLevel(engine.buses[0].meter), engine.analyserLevel(engine.buses[1].meter), engine.analyserLevel(engine.outMeter)]);
       const names = project.tracks.map((t) => t.name).concat(['BUS 1', 'BUS 2', 'OUT']);
+      const cols = TRACK_COLORS.concat(['#c9c1b4', '#c9c1b4', '#f4a3c0']);
       const bw = W / lv.length;
-      g.font = '9px monospace';
+      g.font = '800 10px Archivo, sans-serif';
       lv.forEach((v, i) => {
-        const bh = Math.min(1, v) * (h - 20);
-        g.fillStyle = v > 0.98 ? '#ff3b4a' : i === lv.length - 1 ? '#ffb36b' : 'rgba(255,122,26,0.55)';
-        g.fillRect(i * bw + bw * 0.3, top + h - bh, bw * 0.4, bh);
-        g.fillStyle = '#4a4f56';
-        g.fillText(names[i], i * bw + bw * 0.3, H - 2);
+        const bh = Math.min(1, v) * (H - 40);
+        g.fillStyle = v > 0.98 ? '#e8574a' : cols[i];
+        g.fillRect(i * bw + bw * 0.32, H - 22 - bh, bw * 0.36, bh);
+        g.fillStyle = 'rgba(239,230,214,0.7)';
+        g.fillText(names[i], i * bw + bw * 0.32, H - 6);
       });
     }
   }
+  // display LCD in alto
   function renderInfo() {
     if (ui.aux) {
-      const routed = project.tracks.map((t, i) => ({ t, i })).filter(({ t }) => (ui.aux === 'bus1' && t.params.out === 1) || (ui.aux === 'bus2' && t.params.out === 2));
-      $('infoL').innerHTML = `<b>${S33.AUX[ui.aux].title}</b> · ${AUX_INFO[ui.aux]}`;
-      $('infoR').textContent = ui.aux.startsWith('bus') ? (routed.length ? 'IN: ' + routed.map((r) => r.t.name).join(', ') : 'nessuna traccia in ingresso') : '';
+      $('lcdTrack').textContent = { bus1: 'B1', bus2: 'B2', dly: 'DL', rev: 'RV', cho: 'CH', mix: 'MX' }[ui.aux];
+      $('lcdMain').textContent = S33.AUX[ui.aux].title;
+      $('lcdSub').textContent = AUX_INFO[ui.aux].toUpperCase() + ' · ' + project.bpm + ' BPM';
       return;
     }
     const t = track();
     const e = currentEntry();
-    $('infoL').innerHTML = `<b>${t.name}</b> · ${t.machine === 'multi' ? 'MULTI PLAYER' : 'SINGLE PLAYER'} · ${e ? e.label : '—'}`;
-    const idx = activeStepIdx();
+    $('lcdTrack').textContent = 'T' + (ui.track + 1);
+    $('lcdMain').textContent = t.name + ' · ' + (t.machine === 'multi' ? 'MULTI PLAYER' : 'SINGLE PLAYER');
     const st = activeStep();
+    const parts = [];
     if (st) {
       const n = Object.keys(st.locks).length;
-      const chord = st.notes.map(S33.noteName).join(' ');
-      $('infoR').innerHTML = `<span class="lockTag">STEP ${idx + 1}${ui.heldStep != null ? ' (tenuto)' : ''} · ${n} LOCK</span> · ${chord}`;
+      parts.push('<span class="lk">STEP ' + (activeStepIdx() + 1) + (ui.heldStep != null ? ' (TENUTO)' : '') + ' · ' + n + ' LOCK</span>');
+      parts.push(st.notes.map(S33.noteName).join(' '));
     } else {
-      $('infoR').textContent = ui.page === 'TRIG' ? 'VALORI PER I NUOVI TRIG' : 'PARAMETRI DI TRACCIA';
+      parts.push(e ? e.label.toUpperCase() : '—');
+      parts.push('TRIG ' + S33.noteName(t.trig.note));
     }
+    if (project.scale) parts.push(S33.NOTE_NAMES[project.root] + ' ' + S33.SCALES[project.scale][0]);
+    parts.push(project.bpm + ' BPM');
+    $('lcdSub').innerHTML = parts.join(' · ');
+  }
+  function renderVoiceBars() {
+    const box = $('voiceBars');
+    if (!box.children.length) for (let i = 0; i < 8; i++) box.appendChild(document.createElement('span'));
+    const n = ui.aux ? 0 : engine.tracks[ui.track].voices.filter((v) => !v.dead && engine.ctx.currentTime >= v.t).length;
+    [...box.children].forEach((s, i) => {
+      const on = i < n;
+      s.classList.toggle('on', on);
+      s.style.height = on ? 14 + ((i * 7) % 20) + 'px' : '3px';
+    });
   }
 
   /* ---------- trasporto ---------- */
@@ -827,7 +1041,7 @@
       seq.start();
     }
     $('play').classList.toggle('on', seq.playing);
-    $('play').textContent = seq.playing ? '■' : '▶';
+    $('play').textContent = seq.playing ? '■ Stop' : '▶ Play';
     renderSteps();
   }
   function setFill(on) {
@@ -913,7 +1127,7 @@
       }
     } else if (!seq.playing) {
       t.trig.note = note;
-      if (ui.page === 'TRIG' && !ui.aux) renderKnobs();
+      renderKnobs();
     }
     return note;
   }
@@ -934,10 +1148,11 @@
     if (num >= 1 && num <= 8) i = num - 1;
     else if (num >= 70 && num <= 77) i = num - 70;
     if (i < 0) return;
-    const k = keysNow()[i];
+    const k = focusKeys()[i];
     if (!k) return;
-    const mn = kDef(k).min, mx = kMax(k);
-    kSet(k, mn + (val / 127) * (mx - mn), { quiet: true });
+    const aux = ui.focus === 'aux';
+    const mn = kDef(k, aux).min, mx = kMax(k, aux);
+    kSet(k, mn + (val / 127) * (mx - mn), aux, { quiet: true });
   }
 
   function setupMidi() {
@@ -980,7 +1195,8 @@
       const key = e.key.toLowerCase();
       if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) togglePlay(); return; }
       if (e.repeat) return;
-      if (e.shiftKey && /^Digit[1-6]$/.test(e.code)) { ui.page = S33.PAGE_NAMES[+e.code.slice(5) - 1]; ui.aux = null; renderAll(); return; }
+      if (e.shiftKey && /^Digit[1-6]$/.test(e.code)) { if (ui.aux) { ui.aux = null; buildAuxKnobs(); } ui.focus = ui.trackFocus = FOCUS_ORDER[+e.code.slice(5) - 1]; renderAll(); return; }
+      if (key === 'l') { toggleLibrary(); return; }
       if (/^Digit[1-4]$/.test(e.code)) { selectTrack(+e.code.slice(5) - 1); return; }
       if (key in KEYMAP) { noteOn(S33.clamp(60 + ui.octave * 12 + KEYMAP[key], 0, 127), 100); return; }
       if (key === 'z') { ui.octave = Math.max(-4, ui.octave - 1); toast('Ottava ' + (ui.octave >= 0 ? '+' : '') + ui.octave); renderSteps(); return; }
@@ -1130,7 +1346,7 @@
     const b = $('recGo');
     b.classList.toggle('arm', st === 'wait');
     b.classList.toggle('on', st === 'rec');
-    b.textContent = st === 'idle' ? '● CAMPIONA' : st === 'wait' ? '… IN ATTESA' : '■ STOP';
+    b.title = st === 'idle' ? 'Campiona' : st === 'wait' ? 'In attesa della battuta' : 'Stop';
     $('recMeterBar').style.width = recorder ? Math.min(100, recorder.meter * 100) + '%' : '0';
     $('recMeterBar').classList.toggle('clip', !!(recorder && recorder.meter > 0.99));
     const secs = recorder && st === 'rec' ? (recorder.frames || 0) / engine.ctx.sampleRate : 0;
@@ -1161,6 +1377,12 @@
   function applyAllAudio() {
     project.tracks.forEach((t, i) => { engine.updateLfo(i, t.params, project.bpm); engine.setRoute(i, t.params.out); });
     engine.applyFx(project.fx, project.bpm);
+  }
+
+  function toggleLibrary() {
+    $('library').hidden = !$('library').hidden;
+    $('btnLib').classList.toggle('on', !$('library').hidden);
+    if (!$('library').hidden) renderPool();
   }
 
   /* ---------- render complessivo e loop ---------- */
@@ -1195,14 +1417,15 @@
     const pn = performance.now();
     const cards = $('tracks').children;
     for (let i = 0; i < S33.TRACKS; i++) {
-      cards[i].querySelector('.led').classList.toggle('hit', pn < ui.ledUntil[i]);
-      cards[i].querySelector('.meter').style.width = Math.min(100, engine.meterLevel(i) * 140) + '%';
+      cards[i].querySelector('.pad').classList.toggle('hit', pn < ui.ledUntil[i]);
+      cards[i].querySelector('.meter').style.width = Math.min(42, engine.meterLevel(i) * 60) + 'px';
     }
+    renderVoiceBars();
     document.querySelectorAll('.auxbtn').forEach((b) => {
       b.querySelector('.am').style.width = Math.min(100, engine.analyserLevel(engine.auxAnalyser(b.dataset.id)) * 140) + '%';
     });
     if (recorder) updateRecUI();
-    drawWave();
+    if (ui.aux) drawScope(); else { drawWave(); renderZones(); }
     renderInfoThrottled();
     requestAnimationFrame(frame);
   }
@@ -1217,12 +1440,16 @@
   };
 
   /* ---------- collegamenti ---------- */
-  buildKnobs();
+  buildPanels();
   buildSteps();
   setupDrops();
   setupMidi();
   setupKeys();
   $('play').onclick = togglePlay;
+  $('btnLib').onclick = toggleLibrary;
+  $('libClose').onclick = toggleLibrary;
+  $('auxBack').onclick = () => { ui.aux = null; ui.focus = ui.trackFocus; buildAuxKnobs(); renderAll(); };
+  window.addEventListener('resize', () => renderKnobs());
   $('fill').addEventListener('pointerdown', () => setFill(!seq.fill));
   $('rec').onclick = () => { ui.rec = !ui.rec; ui.recWrites.clear(); renderTransport(); };
   $('follow').onclick = () => { ui.follow = !ui.follow; renderTransport(); };
@@ -1276,7 +1503,7 @@
   applyAllAudio();
   renderAll();
   requestAnimationFrame(frame);
-  window.__prisma = { get recorder() { return recorder; }, ensureRecorder, engine, seq, get project() { return project; }, get pool() { return pool; }, ui, noteOn, noteOff, setVal, togglePlay };
+  window.__prisma = { get recorder() { return recorder; }, ensureRecorder, engine, seq, get project() { return project; }, get pool() { return pool; }, ui, noteOn, noteOff, setVal, togglePlay, cc };
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
