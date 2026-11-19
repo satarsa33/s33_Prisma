@@ -160,7 +160,32 @@
   }
 
   /* ---------- tracce ---------- */
-  const TRACK_COLORS = ['#e0745a', '#a8862f', '#4a6aa8', '#7a5fb0'];
+  const THEME_TRACKS = {
+    s33: ['#e0745a', '#a8862f', '#4a6aa8', '#7a5fb0'],
+    carta: ['#c4553b', '#b8871f', '#3d63b0', '#6d4fa6'],
+    neon: ['#ff3ea5', '#ff9a3c', '#31e1ff', '#a36bff'],
+  };
+  const THEME_NAMES = { s33: 'S33', carta: 'Carta', neon: 'Neon' };
+  let theme = 's33';
+  try { theme = localStorage.getItem('prisma-theme') || 's33'; } catch (e) {}
+  if (!THEME_TRACKS[theme]) theme = 's33';
+  const trackColors = () => THEME_TRACKS[theme];
+  function applyTheme() {
+    document.body.classList.remove('theme-carta', 'theme-neon');
+    if (theme !== 's33') document.body.classList.add('theme-' + theme);
+    tvCache.clear();
+    const b = document.getElementById('btnTheme');
+    if (b) b.textContent = 'Tema: ' + THEME_NAMES[theme];
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = { s33: '#121212', carta: '#ece6da', neon: '#08081a' }[theme];
+  }
+  function cycleTheme() {
+    const order = ['s33', 'carta', 'neon'];
+    theme = order[(order.indexOf(theme) + 1) % order.length];
+    try { localStorage.setItem('prisma-theme', theme); } catch (e) {}
+    applyTheme();
+    renderAll();
+  }
   function renderTracks() {
     const box = $('tracks');
     if (!box.children.length) {
@@ -170,7 +195,7 @@
         el.innerHTML = `<span class="pad">${i + 1}<span class="meter"></span></span>
           <div class="info"><span class="nm"></span><span class="sub"></span></div>
           <button class="ms m" title="Mute">M</button><button class="ms s" title="Solo">S</button>`;
-        el.querySelector('.pad').style.background = TRACK_COLORS[i];
+
         el.addEventListener('pointerdown', (e) => {
           if (e.target.closest('button') || e.target.isContentEditable) return;
           selectTrack(i);
@@ -212,6 +237,7 @@
     project.tracks.forEach((t, i) => {
       const el = box.children[i];
       el.classList.toggle('sel', i === ui.track && !ui.aux);
+      el.querySelector('.pad').style.background = trackColors()[i];
       const nm = el.querySelector('.nm');
       if (nm.contentEditable !== 'true') nm.textContent = t.name;
       const e = smpList(t)[t.params.smp];
@@ -220,7 +246,7 @@
       el.querySelector('.ms.m').classList.toggle('on', t.mute);
       el.querySelector('.ms.s').classList.toggle('on', t.solo);
     });
-    document.documentElement.style.setProperty('--tc', TRACK_COLORS[ui.track]);
+    document.documentElement.style.setProperty('--tc', trackColors()[ui.track]);
   }
   function selectTrack(i) {
     ui.track = i;
@@ -304,8 +330,8 @@
     el.className = 'knob';
     el.innerHTML = `<svg viewBox="0 0 46 46" aria-hidden="true"><path class="bg" d="${BG_ARC}" fill="none" stroke-width="4" stroke-linecap="round"/>
       <path class="fg" fill="none" stroke-width="4" stroke-linecap="round"/>
-      <circle cx="23" cy="23" r="13" fill="#161616"/>
-      <line class="ind" x1="23" y1="23" x2="23" y2="13" stroke="#efe6d6" stroke-width="2.5" stroke-linecap="round"/></svg>
+      <circle class="cap" cx="23" cy="23" r="13"/>
+      <line class="ind" x1="23" y1="23" x2="23" y2="13" stroke-width="2.5" stroke-linecap="round"/></svg>
       <span class="kb"></span><span class="lab"></span><span class="val"></span>`;
     const o = { el, k, aux };
     if (!k) { el.classList.add('empty'); return o; }
@@ -865,7 +891,13 @@
     g.clearRect(0, 0, W, H);
     return { g, W, H };
   }
-  const CREAM = '#efe6d6';
+  // colori dei grafici presi dal tema (variabili CSS del pannello)
+  const tvCache = new Map();
+  function tv(id, name) {
+    const k = id + name;
+    if (!tvCache.has(k)) tvCache.set(k, getComputedStyle($(id)).getPropertyValue(name).trim() || '#efe6d6');
+    return tvCache.get(k);
+  }
   function drawWave() {
     const c = prepCanvas($('wave'));
     if (!c) return;
@@ -878,33 +910,34 @@
     const grain = track().machine === 'grain';
     const st = grain ? 0 : getVal('start'), en = grain ? 1 : getVal('end'), loop = !grain && getVal('loop'), rev = getVal('rev');
     const p = peaks(e.buffer, Math.max(1, Math.floor(W)));
+    const waveIn = tv('wave', '--wave'), waveOut = tv('wave', '--waveOut');
     const xs = st * W, xe = Math.max(xs + 1, en * W);
     if (grain) {
       // posizione del granulatore e zona di spray
       const gp = getVal('gpos') * W;
       const sp = (getVal('gspray') / 127) * 0.2 * W;
-      g.fillStyle = 'rgba(244,163,192,0.18)';
+      g.fillStyle = tv('wave', '--markerFill');
       g.fillRect(gp - sp, 0, sp * 2, H);
     }
-    g.fillStyle = 'rgba(0,0,0,0.22)';
+    g.fillStyle = tv('wave', '--shade');
     g.fillRect(0, 0, xs, H);
     g.fillRect(xe, 0, W - xe, H);
     for (let x = 0; x < W; x++) {
       const inside = x >= xs && x <= xe;
-      g.fillStyle = inside ? 'rgba(239,230,214,0.92)' : 'rgba(201,214,238,0.28)';
+      g.fillStyle = inside ? waveIn : waveOut;
       const mn = p[x * 2], mx = p[x * 2 + 1];
       const y0 = mid - mx * (h / 2) * 0.95, y1 = mid - mn * (h / 2) * 0.95;
       g.fillRect(x, y0, 1, Math.max(1, y1 - y0));
     }
-    g.fillStyle = '#f4a3c0';
+    g.fillStyle = tv('wave', '--marker');
     if (grain) g.fillRect(getVal('gpos') * W - 1, 0, 2, H);
     else { g.fillRect(xs, 0, 2, H); g.fillRect(xe - 2, 0, 2, H); }
     if (loop) {
-      g.fillStyle = '#9fe8f0';
+      g.fillStyle = tv('wave', '--loopCol');
       g.fillRect(xs, H - bottom + 2, xe - xs, 2);
     }
-    if (rev) { g.fillStyle = CREAM; g.font = '800 10px Archivo, sans-serif'; g.fillText('◀ REV', W - 52, 18); }
-    g.fillStyle = '#ffffff';
+    if (rev) { g.fillStyle = tv('wave', '--curve'); g.font = '800 10px sans-serif'; g.fillText('◀ REV', W - 52, 18); }
+    g.fillStyle = tv('wave', '--playhead');
     engine.voicePositions(ui.track).forEach((v) => {
       if (v.buffer !== e.buffer && !rev) return;
       g.fillRect(v.x * W, top, 1.5, h);
@@ -949,7 +982,7 @@
       const db = 20 * Math.log10(Math.max(1e-5, m));
       return H * 0.42 - (db / 30) * H * 0.42;
     };
-    g.strokeStyle = 'rgba(255,255,255,0.08)';
+    g.strokeStyle = tv('fcurve', '--grid');
     [0.25, 0.5, 0.75].forEach((f) => { g.beginPath(); g.moveTo(W * f, 0); g.lineTo(W * f, H); g.stroke(); });
     g.beginPath();
     for (let i = 0; i < F_N; i++) {
@@ -957,14 +990,14 @@
       i ? g.lineTo(xx, yy) : g.moveTo(xx, yy);
     }
     g.lineTo(W, H + 2); g.lineTo(0, H + 2); g.closePath();
-    g.fillStyle = 'rgba(239,230,214,0.13)';
+    g.fillStyle = tv('fcurve', '--curveFill');
     g.fill();
     g.beginPath();
     for (let i = 0; i < F_N; i++) {
       const xx = (i / (F_N - 1)) * W, yy = S33.clamp(y(fMag[i]), 2, H + 2);
       i ? g.lineTo(xx, yy) : g.moveTo(xx, yy);
     }
-    g.strokeStyle = isLocked('freq') || isLocked('reso') ? '#ffd23f' : CREAM;
+    g.strokeStyle = isLocked('freq') || isLocked('reso') ? tv('fcurve', '--lock') : tv('fcurve', '--curve');
     g.lineWidth = 2;
     g.stroke();
     // inviluppo del filtro: freccia verso dove arriva
@@ -972,11 +1005,11 @@
     if (fenv) {
       const peak = S33.clamp(base * Math.pow(2, (fenv / 64) * 7), 20, 20000);
       const x0 = (Math.log(base / 20) / Math.log(1000)) * W, x1 = (Math.log(peak / 20) / Math.log(1000)) * W;
-      g.strokeStyle = 'rgba(239,230,214,0.5)';
+      g.strokeStyle = tv('fcurve', '--curve'); g.globalAlpha = 0.5;
       g.setLineDash([3, 3]);
       g.beginPath(); g.moveTo(x0, H - 8); g.lineTo(x1, H - 8); g.stroke();
-      g.setLineDash([]);
-      g.fillStyle = CREAM;
+      g.setLineDash([]); g.globalAlpha = 1;
+      g.fillStyle = tv('fcurve', '--curve');
       g.beginPath(); g.arc(x1, H - 8, 3, 0, Math.PI * 2); g.fill();
     }
   }
@@ -992,14 +1025,14 @@
     g.beginPath();
     pts.forEach(([x, yy], i) => (i ? g.lineTo(x, yy) : g.moveTo(x, yy)));
     g.lineTo(pts[0][0], bot);
-    g.fillStyle = 'rgba(239,230,214,0.12)';
+    g.fillStyle = tv('adsr', '--curveFill');
     g.fill();
     g.beginPath();
     pts.forEach(([x, yy], i) => (i ? g.lineTo(x, yy) : g.moveTo(x, yy)));
-    g.strokeStyle = ['atk', 'dec', 'sus', 'rel'].some(isLocked) ? '#ffd23f' : CREAM;
+    g.strokeStyle = ['atk', 'dec', 'sus', 'rel'].some(isLocked) ? tv('adsr', '--lock') : tv('adsr', '--curve');
     g.lineWidth = 2;
     g.stroke();
-    g.fillStyle = CREAM;
+    g.fillStyle = tv('adsr', '--curve');
     pts.slice(1, 4).forEach(([x, yy]) => { g.beginPath(); g.arc(x, yy, 3, 0, Math.PI * 2); g.fill(); });
   }
   function drawLfo() {
@@ -1015,7 +1048,7 @@
       const yy = H / 2 - v * dep * (H / 2 - 5);
       x ? g.lineTo(x, yy) : g.moveTo(x, yy);
     }
-    g.strokeStyle = isLocked('ldep') ? '#ffd23f' : CREAM;
+    g.strokeStyle = isLocked('ldep') ? tv('lfoview', '--lock') : tv('lfoview', '--curve');
     g.lineWidth = 2;
     g.stroke();
   }
@@ -1041,9 +1074,9 @@
     const buf = scopeBuf.subarray(0, n);
     an.getFloatTimeDomainData(buf);
     const mid = H / 2;
-    g.strokeStyle = 'rgba(255,255,255,0.08)';
+    g.strokeStyle = tv('scope', '--grid');
     g.beginPath(); g.moveTo(0, mid + 0.5); g.lineTo(W, mid + 0.5); g.stroke();
-    g.strokeStyle = CREAM;
+    g.strokeStyle = tv('scope', '--curve');
     g.lineWidth = 1.6;
     g.beginPath();
     for (let i = 0; i < n; i++) {
@@ -1054,14 +1087,14 @@
     if (ui.aux === 'mix') {
       const lv = [0, 1, 2, 3].map((i) => engine.meterLevel(i)).concat([engine.analyserLevel(engine.buses[0].meter), engine.analyserLevel(engine.buses[1].meter), engine.analyserLevel(engine.outMeter)]);
       const names = project.tracks.map((t) => t.name).concat(['BUS 1', 'BUS 2', 'OUT']);
-      const cols = TRACK_COLORS.concat(['#c9c1b4', '#c9c1b4', '#f4a3c0']);
+      const cols = trackColors().concat([tv('scope', '--dimTxt'), tv('scope', '--dimTxt'), tv('scope', '--marker')]);
       const bw = W / lv.length;
       g.font = '800 10px Archivo, sans-serif';
       lv.forEach((v, i) => {
         const bh = Math.min(1, v) * (H - 40);
         g.fillStyle = v > 0.98 ? '#e8574a' : cols[i];
         g.fillRect(i * bw + bw * 0.32, H - 22 - bh, bw * 0.36, bh);
-        g.fillStyle = 'rgba(239,230,214,0.7)';
+        g.fillStyle = tv('scope', '--dimTxt');
         g.fillText(names[i], i * bw + bw * 0.32, H - 6);
       });
     }
@@ -1770,6 +1803,8 @@
   setupKeys();
   $('play').onclick = togglePlay;
   $('btnLib').onclick = toggleLibrary;
+  $('btnTheme').onclick = cycleTheme;
+  applyTheme();
   $('libClose').onclick = toggleLibrary;
   $('auxBack').onclick = () => { ui.aux = null; ui.focus = ui.trackFocus; buildAuxKnobs(); renderAll(); };
   window.addEventListener('resize', () => renderKnobs());
