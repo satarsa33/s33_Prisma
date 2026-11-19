@@ -4,82 +4,183 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>S33 - Prisma</title>
-<meta name="theme-color" content="#0d0e10">
+<meta name="theme-color" content="#121212">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="app">
   <header>
-    <div class="brand">S33 - Prisma <span class="sub">polyphonic sampler · sequencer · fx</span></div>
-    <div class="transport">
-      <button id="play" class="tbtn" title="Play / Stop (spazio)">▶</button>
-      <div class="field" id="bpmField" title="Trascina o doppio clic per scrivere"><label>BPM</label><span id="bpm">120</span></div>
-      <div class="field" id="swingField" title="Trascina"><label>SWING</label><span id="swing">50%</span></div>
-      <button id="fill" class="tbtn small" title="Tieni premuto ` per un fill momentaneo">FILL</button>
-      <button id="rec" class="tbtn small rec" title="Registrazione live dalla tastiera (R)">REC</button>
+    <div class="brand">
+      <div class="brandRow"><span class="s33">S33</span><span class="name">PRISMA</span></div>
+      <div class="tag">POLYPHONIC SAMPLER · 4 TRACKS</div>
     </div>
-    <div class="transport">
-      <div class="field" id="rootField" title="Tonalità (trascina)"><label>KEY</label><span id="keyRoot">C</span></div>
-      <div class="field wide" id="scaleField" title="Scala (trascina)"><label>SCALE</label><span id="keyScale">CHROMATIC</span></div>
-      <button id="snap" class="tbtn small" title="Porta le note suonate sulla scala">SNAP</button>
+
+    <div class="lcd" id="lcd">
+      <span class="lcdBig" id="lcdTrack">T1</span>
+      <span class="lcdSep"></span>
+      <div class="lcdText">
+        <span class="lcdMain" id="lcdMain"></span>
+        <span class="lcdSub" id="lcdSub"></span>
+      </div>
+      <div class="voiceBars" id="voiceBars"></div>
     </div>
-    <div class="io">
-      <span id="midiStatus" class="midi off">MIDI —</span>
-      <button id="btnNew" class="tbtn small ghost">DEMO</button>
-      <button id="btnOpen" class="tbtn small ghost">APRI</button>
-      <button id="btnSave" class="tbtn small ghost">SALVA</button>
+
+    <div class="ctl">
+      <div class="ctlRow">
+        <button id="play" class="cbtn primary" title="Play / Stop (spazio)">▶ Play</button>
+        <button id="rec" class="cbtn" title="Registrazione live dalla tastiera (R)">Rec</button>
+        <button id="fill" class="cbtn" title="Fill (tieni premuto `)">Fill</button>
+        <button id="btnLib" class="cbtn" title="Campioni e multicampioni (L)">Library</button>
+        <button id="btnSave" class="cbtn" title="Salva progetto (⌘S)">Save</button>
+        <button id="btnOpen" class="cbtn ghost" title="Apri progetto">Open</button>
+        <button id="btnNew" class="cbtn ghost" title="Carica il progetto demo">Demo</button>
+      </div>
+      <div class="ctlRow">
+        <div class="field" id="bpmField" title="Trascina · doppio clic per scrivere"><label>BPM</label><span id="bpm">120</span></div>
+        <div class="field" id="swingField" title="Trascina"><label>SWING</label><span id="swing">50%</span></div>
+        <div class="field" id="rootField" title="Tonalità (trascina)"><label>KEY</label><span id="keyRoot">C</span></div>
+        <div class="field wide" id="scaleField" title="Scala (trascina)"><span id="keyScale">CHROMATIC</span></div>
+        <button id="snap" class="cbtn small" title="Porta le note suonate sulla scala">Snap</button>
+        <span id="midiStatus" class="midi off">MIDI —</span>
+      </div>
     </div>
   </header>
 
   <main>
-    <section id="tracks"></section>
-
-    <section id="center">
-      <div class="display">
-        <div class="tabs" id="tabs"></div>
-        <div class="screen">
-          <canvas id="wave"></canvas>
-          <div class="info"><span id="infoL"></span><span id="infoR"></span></div>
+    <section class="panel dark" id="tracksPanel">
+      <div class="phead"><span class="ptitle">TRACKS</span><span class="pline"></span></div>
+      <div id="tracks"></div>
+      <div class="phead"><span class="ptitle">BUS · FX</span><span class="pline"></span></div>
+      <div id="auxgrid" class="auxgrid"></div>
+      <div class="phead"><span class="ptitle">RECORDER</span><span class="pline"></span></div>
+      <div class="recbox">
+        <div class="seg dk" id="recSrc"><button data-s="main">MAIN</button><button data-s="in">INPUT</button></div>
+        <select id="recDev"></select>
+        <div class="recRow">
+          <button id="recGo" class="recgo" aria-label="Campiona"><span></span></button>
+          <div class="recSide">
+            <div class="seg dk mini" id="recLen"><button data-b="0">FREE</button><button data-b="1">1</button><button data-b="2">2</button><button data-b="4">4</button><button data-b="8">8</button></div>
+            <div class="rmeter"><div id="recMeterBar"></div></div>
+            <div class="recOpts"><button id="recMon" class="tiny">MON</button><button id="recNorm" class="tiny">NORM</button><span id="recStatus"></span></div>
+          </div>
         </div>
-        <div class="knobs" id="knobs"></div>
       </div>
     </section>
 
-    <aside id="pool">
-      <div class="poolHead">RECORDER</div>
-      <div class="recbox">
-        <div class="seg full" id="recSrc"><button data-s="main">MAIN</button><button data-s="in">INPUT</button></div>
-        <select id="recDev"></select>
-        <div class="seg full" id="recLen"><button data-b="0">FREE</button><button data-b="1">1</button><button data-b="2">2</button><button data-b="4">4</button><button data-b="8">8 BAR</button></div>
-        <div class="rrow"><button id="recMon" class="tbtn small ghost" title="Ascolta l'ingresso">MON</button><button id="recNorm" class="tbtn small ghost" title="Normalizza la registrazione">NORM</button><span id="recStatus"></span></div>
-        <div class="rmeter"><div id="recMeterBar"></div></div>
-        <button id="recGo" class="recgo">● CAMPIONA</button>
-      </div>
-      <div class="poolHead">SAMPLE</div>
-      <div class="drop" id="dropSamples">Trascina qui file audio<br><small>ognuno diventa un campione</small></div>
-      <ul id="sampleList"></ul>
-      <div class="poolHead">MULTI</div>
-      <div class="drop" id="dropMulti">Trascina qui più file<br><small>diventano un multicampione</small></div>
-      <ul id="multiList"></ul>
-    </aside>
+    <!-- vista traccia: pannelli -->
+    <div id="trackView">
+      <section class="panel src" data-panel="src">
+        <div class="phead">
+          <span class="ptitle">SOURCE</span><span class="lockdot"></span><span class="pline"></span>
+          <span class="lpd">LPD8</span>
+          <div class="seg" data-seg="machine"><button data-v="single">SINGLE</button><button data-v="multi">MULTI</button></div>
+          <button class="tog" data-tog="rev">REVERSE</button>
+          <button class="tog" data-tog="loop">LOOP</button>
+        </div>
+        <div class="pbody srcBody">
+          <div class="screenBox">
+            <canvas id="wave"></canvas>
+            <span class="screenLabel" id="waveLabel"></span>
+            <div class="zones" id="zones"></div>
+          </div>
+          <div class="kgrid k3" data-knobs="src"></div>
+        </div>
+      </section>
+
+      <section class="panel flt" data-panel="flt">
+        <div class="phead">
+          <span class="ptitle">FILTER</span><span class="lockdot"></span><span class="pline"></span>
+          <span class="lpd">LPD8</span>
+          <div class="seg" data-seg="ftype"><button data-v="0">LP</button><button data-v="1">BP</button><button data-v="2">HP</button></div>
+        </div>
+        <div class="pbody">
+          <div class="miniScreen"><canvas id="fcurve"></canvas></div>
+          <div class="kgrid k4" data-knobs="flt"></div>
+        </div>
+      </section>
+
+      <section class="panel amp" data-panel="amp">
+        <div class="phead"><span class="ptitle">AMP</span><span class="lockdot"></span><span class="pline"></span><span class="lpd">LPD8</span></div>
+        <div class="pbody">
+          <div class="miniScreen"><canvas id="adsr"></canvas></div>
+          <div class="kgrid k4" data-knobs="amp"></div>
+        </div>
+      </section>
+
+      <section class="panel fx" data-panel="fx">
+        <div class="phead">
+          <span class="ptitle">FX · SEND</span><span class="lockdot"></span><span class="pline"></span>
+          <span class="lpd">LPD8</span>
+          <div class="seg" data-seg="out"><button data-v="0">MAIN</button><button data-v="1">BUS 1</button><button data-v="2">BUS 2</button></div>
+        </div>
+        <div class="pbody">
+          <div class="kgrid k3 roomy" data-knobs="fx"></div>
+        </div>
+      </section>
+
+      <section class="panel lfo" data-panel="lfo">
+        <div class="phead">
+          <span class="ptitle">LFO</span><span class="lockdot"></span><span class="pline"></span>
+          <span class="lpd">LPD8</span>
+          <button class="tog" data-tog="lsync">SYNC</button>
+        </div>
+        <div class="pbody">
+          <div class="seg wrap" data-seg="lwave"><button data-v="0">SIN</button><button data-v="1">TRI</button><button data-v="2">SAW</button><button data-v="3">SQR</button><button data-v="4">S&amp;H</button><button data-v="5">RND</button></div>
+          <div class="miniScreen short"><canvas id="lfoview"></canvas></div>
+          <div class="lfoRow">
+            <div class="kgrid k2" data-knobs="lfo"></div>
+            <div class="seg grid2" data-seg="ldest"><button data-v="0">PITCH</button><button data-v="1">FREQ</button><button data-v="2">AMP</button><button data-v="3">PAN</button></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- vista bus / effetti / mix -->
+    <div id="auxView" hidden>
+      <section class="panel aux" id="auxPanel" data-panel="aux">
+        <div class="phead"><span class="ptitle" id="auxTitle">BUS 1</span><span class="pline"></span><span class="auxInfo" id="auxInfo"></span><span class="lpd">LPD8</span><button class="cbtn small" id="auxBack">← Traccia</button></div>
+        <div class="pbody auxBody">
+          <div class="screenBox"><canvas id="scope"></canvas></div>
+          <div class="kgrid k4 big" data-knobs="aux"></div>
+        </div>
+      </section>
+    </div>
   </main>
 
-  <footer>
-    <div class="seqbar">
+  <section class="panel dark seq" data-panel="trig">
+    <div class="phead seqHead">
+      <span class="ptitle">SEQUENCER</span>
+      <span class="seqTrack" id="seqTrack">T1</span>
       <div class="pages" id="pages"></div>
-      <div class="field" id="lenField" title="Lunghezza della traccia (trascina)"><label>LEN</label><span id="trackLen">16</span></div>
-      <button id="follow" class="tbtn small on" title="La pagina segue la riproduzione">FOLLOW</button>
-      <button id="kbd" class="tbtn small" title="I 16 tasti diventano una tastiera nella scala (Q)">KEYS</button>
-      <span class="hint" id="hint">clic = trig · tieni premuto o ⇧clic = seleziona step per p-lock · doppio clic su una manopola = reset</span>
-      <button id="clearLocks" class="tbtn small ghost">CANC. LOCK</button>
-      <button id="clearTrack" class="tbtn small ghost">CANC. TRACCIA</button>
+      <div class="field small" id="lenField" title="Lunghezza traccia (trascina)"><label>LEN</label><span id="trackLen">16</span></div>
+      <span class="pline"></span>
+      <span class="lpd">LPD8</span>
+      <div class="trigCells" id="trigCells"></div>
+      <button id="follow" class="cbtn small" title="La pagina segue la riproduzione">Follow</button>
+      <button id="kbd" class="cbtn small" title="I 16 tasti diventano una tastiera nella scala (Q)">Keys</button>
+      <button id="clearLocks" class="cbtn small ghost" title="Cancella i p-lock (dello step selezionato o della traccia)">Clr lock</button>
+      <button id="clearTrack" class="cbtn small ghost" title="Cancella tutti gli step della traccia">Clr trk</button>
     </div>
     <div class="steps" id="steps"></div>
-  </footer>
+    <div class="hint" id="hint">clic = trig · tieni premuto o ⇧clic = seleziona lo step per i p-lock · doppio clic su una manopola = reset · clic su un pannello = LPD8 · ⇧1–6 pannelli</div>
+  </section>
 </div>
+
+<!-- Library -->
+<aside id="library" hidden>
+  <div class="libHead"><span class="ptitle">LIBRARY</span><span class="pline"></span><button class="cbtn small" id="libClose">Chiudi</button></div>
+  <div class="poolHead">SAMPLE</div>
+  <div class="drop" id="dropSamples">Trascina qui file audio<br><small>ognuno diventa un campione · oppure clic</small></div>
+  <ul id="sampleList"></ul>
+  <div class="poolHead">MULTI</div>
+  <div class="drop" id="dropMulti">Trascina qui più file<br><small>diventano un multicampione · oppure clic</small></div>
+  <ul id="multiList"></ul>
+</aside>
 
 <input type="file" id="fileSamples" accept="audio/*,.wav,.aif,.aiff,.m4a,.mp3,.flac" multiple hidden>
 <input type="file" id="fileMulti" accept="audio/*,.wav,.aif,.aiff,.m4a,.mp3,.flac" multiple hidden>
