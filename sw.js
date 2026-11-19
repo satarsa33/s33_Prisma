@@ -1,5 +1,5 @@
 // S33 - Prisma · service worker (incrementare CACHE a ogni rilascio)
-const CACHE = 's33-prisma-v4-4';
+const CACHE = 's33-prisma-v4-5';
 const FILES = ['./', 'index.html', 'style.css', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'js/params.js', 'js/engine.js', 'js/factory.js', 'js/seq.js', 'js/storage.js', 'js/recorder.js', 'js/app.js'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES))); self.skipWaiting(); });
