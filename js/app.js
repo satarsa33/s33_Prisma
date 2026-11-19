@@ -175,7 +175,7 @@
     if (theme !== 's33') document.body.classList.add('theme-' + theme);
     tvCache.clear();
     const b = document.getElementById('btnTheme');
-    if (b) b.textContent = 'Tema: ' + THEME_NAMES[theme];
+    if (b) b.textContent = THEME_NAMES[theme];
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.content = { s33: '#121212', carta: '#ece6da', neon: '#08081a' }[theme];
   }
@@ -530,6 +530,7 @@
       const keys = FOCUS_KEYS[id] || [];
       p.classList.toggle('haslock', !!(st && id !== 'trig' && keys.some((k) => st.locks[k] !== undefined)));
     });
+    $('trigLabel').innerHTML = st ? 'TRIG<br>STEP ' + (activeStepIdx() + 1) : 'TRIG<br>NUOVI';
     // celle TRIG
     document.querySelectorAll('#trigCells .tc').forEach((c) => {
       const k = c.dataset.k;
@@ -1035,7 +1036,7 @@
     const tw = (v) => 0.06 + Math.log10(1 + S33.envTime(v) * 30) / Math.log10(1 + 10 * 30);
     const a = tw(getVal('atk')), d = tw(getVal('dec')), r = tw(getVal('rel')), s = getVal('sus') / 127;
     const hold = 0.35, tot = a + d + hold + r, k = (W - 16) / tot;
-    const top = 8, bot = H - 6, hh = bot - top;
+    const top = H > 40 ? 8 : 3, bot = H - (H > 40 ? 6 : 3), hh = bot - top;
     const pts = [[8, bot], [8 + a * k, top], [8 + (a + d) * k, top + (1 - s) * hh], [8 + (a + d + hold) * k, top + (1 - s) * hh], [8 + tot * k, bot]];
     g.beginPath();
     pts.forEach(([x, yy], i) => (i ? g.lineTo(x, yy) : g.moveTo(x, yy)));
@@ -1048,7 +1049,7 @@
     g.lineWidth = 2;
     g.stroke();
     g.fillStyle = tv('adsr', '--curve');
-    pts.slice(1, 4).forEach(([x, yy]) => { g.beginPath(); g.arc(x, yy, 3, 0, Math.PI * 2); g.fill(); });
+    if (H > 40) pts.slice(1, 4).forEach(([x, yy]) => { g.beginPath(); g.arc(x, yy, 3, 0, Math.PI * 2); g.fill(); });
   }
   function drawLfo() {
     const c = prepCanvas($('lfoview'));

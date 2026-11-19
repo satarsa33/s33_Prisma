@@ -96,7 +96,7 @@
     rel: { label: 'REL', min: 0, max: 127, step: 1, def: 50, fmt: fmtTime, lock: true },
     pan: { label: 'PAN', min: -64, max: 63, step: 1, def: 0, fmt: (v) => (v === 0 ? 'C' : v < 0 ? 'L' + -v : 'R' + v), lock: true },
     vol: { label: 'VOL', min: 0, max: 127, step: 1, def: 100, lock: true },
-    avel: { label: 'VEL>AMP', min: 0, max: 127, step: 1, def: 90, lock: true },
+    avel: { label: 'VELO', min: 0, max: 127, step: 1, def: 90, lock: true },
     // FX per voce (bloccabili) + uscita di traccia
     drive: { label: 'DRIVE', min: 0, max: 127, step: 1, def: 0, lock: true },
     bits: { label: 'BITS', min: 0, max: 15, step: 1, def: 0, fmt: (v) => (v === 0 ? 'OFF' : 17 - v + 'bit'), lock: true },
