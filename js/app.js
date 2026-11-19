@@ -319,8 +319,9 @@
     el.addEventListener('pointermove', (e) => {
       if (y0 == null) return;
       const range = kMax(k, aux) - kDef(k, aux).min;
-      let per = range <= 40 ? 1 / 10 : range / 200;
-      if (e.shiftKey) per /= 6;
+      // sensibilità: i parametri continui (es. POS, START, END) chiedono più corsa del mouse
+      let per = kDef(k, aux).step < 1 ? range / 600 : range <= 40 ? 1 / 12 : range / 320;
+      if (e.shiftKey || e.altKey) per /= 8;
       kSet(k, v0 + (y0 - e.clientY) * per, aux);
     });
     const end = () => { y0 = null; };
@@ -329,7 +330,7 @@
     el.addEventListener('wheel', (e) => {
       e.preventDefault();
       const range = kMax(k, aux) - kDef(k, aux).min;
-      const inc = range <= 40 ? 1 : kDef(k, aux).step < 1 ? range / 100 : Math.max(1, Math.round(range / 64));
+      const inc = kDef(k, aux).step < 1 ? range / 400 : 1;
       kSet(k, kGet(k, aux) + (e.deltaY < 0 ? inc : -inc) * (e.shiftKey ? 0.25 : 1), aux);
     }, { passive: false });
     el.addEventListener('dblclick', () => kReset(k, aux));
@@ -363,6 +364,7 @@
       box.appendChild(o.el);
     });
     FOCUS_KEYS.src = SRC_FOCUS[m];
+    box.className = 'kgrid ' + (m === 'grain' ? 'k5' : 'k3');
     document.querySelector('[data-tog="loop"]').hidden = m === 'grain' || m === 'sub';
   }
   function buildPanels() {
@@ -406,7 +408,7 @@
       c.addEventListener('pointermove', (e) => {
         if (y0 == null) return;
         const range = paramMax(k) - P[k].min;
-        setVal(k, v0 + (y0 - e.clientY) * (range <= 40 ? 1 / 10 : range / 200) * (e.shiftKey ? 1 / 6 : 1));
+        setVal(k, v0 + (y0 - e.clientY) * (range <= 40 ? 1 / 12 : range / 320) * (e.shiftKey || e.altKey ? 1 / 8 : 1));
       });
       c.addEventListener('pointerup', () => (y0 = null));
       c.addEventListener('wheel', (e) => { e.preventDefault(); setVal(k, getVal(k) + (e.deltaY < 0 ? 1 : -1)); }, { passive: false });
