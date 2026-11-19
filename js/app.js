@@ -19,12 +19,12 @@
 
   /* ---------- utilità ---------- */
   let toastT;
-  function toast(msg) {
+  function toast(msg, ms = 2200) {
     const t = $('toast');
     t.textContent = msg;
     t.classList.add('show');
     clearTimeout(toastT);
-    toastT = setTimeout(() => t.classList.remove('show'), 1600);
+    toastT = setTimeout(() => t.classList.remove('show'), ms);
   }
   let saveT;
   function dirty() {
@@ -750,20 +750,34 @@
   }
 
   async function decodeFiles(files) {
-    const out = [];
+    const out = [], bad = [];
+    toast('Carico ' + files.length + (files.length > 1 ? ' file…' : ' file…'), 60000);
     for (const f of files) {
       try {
-        const buf = await engine.ctx.decodeAudioData(await f.arrayBuffer());
+        const ab = await f.arrayBuffer();
+        let buf = null;
+        // AIFF/AIFC (comuni con Logic): letti a mano, Chrome non li decodifica
+        if (S33.isAiff(ab)) buf = S33.decodeAiff(ab, engine.ctx.sampleRate);
+        if (!buf) buf = await engine.ctx.decodeAudioData(ab.slice(0));
         out.push({ name: f.name.replace(/\.[a-z0-9]+$/i, ''), file: f.name, buffer: buf });
       } catch (e) {
-        toast('Impossibile leggere ' + f.name);
+        console.warn('Prisma: impossibile leggere', f.name, e);
+        bad.push(f.name);
       }
     }
+    if (bad.length) toast('Non riesco a leggere: ' + bad.join(', ') + ' (prova WAV o MP3)', 6000);
+    else if (!out.length) toast('Nessun file audio caricato');
     return out;
   }
   const uid = () => 'u-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   async function addSamples(files) {
+    try { await addSamplesInner(files); } catch (e) { console.error(e); toast('Errore nel caricamento: ' + e.message, 6000); }
+  }
+  async function addMulti(files) {
+    try { await addMultiInner(files); } catch (e) { console.error(e); toast('Errore nel caricamento: ' + e.message, 6000); }
+  }
+  async function addSamplesInner(files) {
     const dec = await decodeFiles(files);
     if (!dec.length) return;
     const first = pool.samples.length;
@@ -774,7 +788,7 @@
     toast(dec.length + (dec.length > 1 ? ' campioni aggiunti' : ' campione aggiunto'));
     assignToTrackNoLock('single', first);
   }
-  async function addMulti(files) {
+  async function addMultiInner(files) {
     const dec = await decodeFiles(files);
     if (!dec.length) return;
     const zones = [];
@@ -822,10 +836,11 @@
       e.preventDefault();
       clear();
       document.body.classList.remove('dragging');
-      const files = [...e.dataTransfer.files].filter((f) => /audio|\.(wav|aiff?|m4a|mp3|flac|caf)$/i.test(f.type + f.name));
+      const files = [...e.dataTransfer.files].filter((f) => /audio|\.(wav|wave|aif|aiff|aifc|m4a|mp3|mp4|aac|flac|caf|ogg|opus)$/i.test(f.type + f.name));
       if (!files.length) {
         const pf = [...e.dataTransfer.files].find((f) => /\.(prisma|json)$/i.test(f.name));
         if (pf) openProjectFile(pf);
+        else toast(e.dataTransfer.files.length ? 'Questi file non sembrano audio (WAV, AIFF, MP3, M4A, FLAC)' : 'Trascina dei file, non una cartella');
         return;
       }
       engine.resume();

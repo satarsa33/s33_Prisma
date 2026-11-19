@@ -699,3 +699,63 @@
     return ab;
   };
 })();
+
+/* ---------- lettura AIFF / AIFC (Chrome non li decodifica da solo) ---------- */
+(function () {
+  const S33 = window.S33;
+  const str = (v, o, n) => String.fromCharCode(...new Uint8Array(v.buffer, v.byteOffset + o, n));
+  S33.isAiff = (ab) => {
+    if (ab.byteLength < 12) return false;
+    const v = new DataView(ab);
+    return str(v, 0, 4) === 'FORM' && /^AIF[FC]$/.test(str(v, 8, 4));
+  };
+  // float a 80 bit (IEEE 754 esteso) usato per la frequenza di campionamento
+  function ext80(v, o) {
+    const exp = ((v.getUint8(o) & 0x7f) << 8) | v.getUint8(o + 1);
+    const hi = v.getUint32(o + 2), lo = v.getUint32(o + 6);
+    if (!exp && !hi && !lo) return 0;
+    return (hi * Math.pow(2, -31) + lo * Math.pow(2, -63)) * Math.pow(2, exp - 16383);
+  }
+  S33.decodeAiff = (ab) => {
+    const v = new DataView(ab);
+    const aifc = str(v, 8, 4) === 'AIFC';
+    let p = 12, ch = 0, frames = 0, bits = 16, sr = 44100, comp = 'NONE', dataOff = -1;
+    while (p + 8 <= v.byteLength) {
+      const id = str(v, p, 4), size = v.getUint32(p + 4);
+      const body = p + 8;
+      if (id === 'COMM') {
+        ch = v.getInt16(body); frames = v.getUint32(body + 2); bits = v.getInt16(body + 6); sr = ext80(v, body + 8);
+        if (aifc && size >= 22) comp = str(v, body + 18, 4);
+      } else if (id === 'SSND') {
+        dataOff = body + 8 + v.getUint32(body);
+      }
+      p = body + size + (size & 1);
+    }
+    if (!ch || dataOff < 0) throw new Error('AIFF senza audio');
+    const little = comp === 'sowt';
+    const isFloat = comp === 'fl32' || comp === 'FL32';
+    if (!['NONE', 'sowt', 'fl32', 'FL32'].includes(comp)) throw new Error('AIFC compresso (' + comp + ')');
+    const bps = isFloat ? 4 : Math.ceil(bits / 8);
+    frames = Math.min(frames, Math.floor((v.byteLength - dataOff) / (bps * ch)));
+    const buf = new AudioBuffer({ length: Math.max(1, frames), numberOfChannels: ch, sampleRate: Math.round(sr) || 44100 });
+    const chans = Array.from({ length: ch }, (_, c) => buf.getChannelData(c));
+    let o = dataOff;
+    for (let i = 0; i < frames; i++) {
+      for (let c = 0; c < ch; c++) {
+        let x;
+        if (isFloat) x = v.getFloat32(o, false);
+        else if (bps === 1) x = v.getInt8(o) / 128;
+        else if (bps === 2) x = v.getInt16(o, little) / 32768;
+        else if (bps === 3) {
+          const b0 = v.getUint8(o), b1 = v.getUint8(o + 1), b2 = v.getUint8(o + 2);
+          let n = little ? (b2 << 16) | (b1 << 8) | b0 : (b0 << 16) | (b1 << 8) | b2;
+          if (n & 0x800000) n -= 0x1000000;
+          x = n / 8388608;
+        } else x = v.getInt32(o, little) / 2147483648;
+        chans[c][i] = x;
+        o += bps;
+      }
+    }
+    return buf;
+  };
+})();
