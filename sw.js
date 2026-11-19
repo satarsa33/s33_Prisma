@@ -1,5 +1,5 @@
 // S33 - Prisma · service worker (incrementare CACHE a ogni rilascio)
-const CACHE = 's33-prisma-v4.6';
+const CACHE = 's33-prisma-v4.7';
 self.addEventListener('install', (e) => { self.skipWaiting(); });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))));
