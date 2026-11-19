@@ -10,14 +10,14 @@
 <link rel="apple-touch-icon" href="icon-512.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..900&family=Share+Tech+Mono&family=IBM+Plex+Sans:wght@500;600;700&family=IBM+Plex+Mono:wght@400;600&family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=4.7">
+<link rel="stylesheet" href="style.css?v=4.8">
 </head>
 <body>
 <div id="app">
   <header>
     <div class="brand">
       <div class="brandRow"><span class="s33">S33</span><span class="name">PRISMA</span></div>
-      <div class="tag">POLYPHONIC SAMPLER · 4 TRACKS · v4.7</div>
+      <div class="tag">POLYPHONIC SAMPLER · 4 TRACKS · v4.8</div>
     </div>
 
     <div class="lcd" id="lcd">
@@ -39,7 +39,7 @@
         <button id="btnSave" class="cbtn" title="Salva progetto (⌘S)">Save</button>
         <button id="btnOpen" class="cbtn ghost" title="Apri progetto">Open</button>
         <button id="btnNew" class="cbtn ghost" title="Carica il progetto demo">Demo</button>
-        <button id="btnTheme" class="cbtn ghost" title="Cambia tema grafico (S33 · Carta · Neon)">Tema: S33</button>
+        <button id="btnTheme" class="cbtn ghost" title="Cambia tema grafico (S33 · Carta · Neon)">S33</button>
       </div>
       <div class="ctlRow">
         <div class="field" id="bpmField" title="Trascina · doppio clic per scrivere"><label>BPM</label><span id="bpm">120</span></div>
@@ -106,10 +106,9 @@
       </section>
 
       <section class="panel amp" data-panel="amp">
-        <div class="phead"><span class="ptitle">AMP</span><span class="lockdot"></span><span class="pline"></span><span class="lpd">LPD8</span></div>
+        <div class="phead"><span class="ptitle">AMP</span><span class="lockdot"></span><span class="pline"></span><span class="lpd">LPD8</span><div class="iconScreen"><canvas id="adsr"></canvas></div></div>
         <div class="pbody">
-          <div class="miniScreen"><canvas id="adsr"></canvas></div>
-          <div class="kgrid k4" data-knobs="amp"></div>
+          <div class="kgrid krow" data-knobs="amp"></div>
         </div>
       </section>
 
@@ -120,7 +119,7 @@
           <div class="seg" data-seg="out"><button data-v="0">MAIN</button><button data-v="1">BUS 1</button><button data-v="2">BUS 2</button></div>
         </div>
         <div class="pbody">
-          <div class="kgrid k3 roomy" data-knobs="fx"></div>
+          <div class="kgrid krow" data-knobs="fx"></div>
         </div>
       </section>
 
@@ -128,12 +127,12 @@
         <div class="phead">
           <span class="ptitle">LFO</span><span class="lockdot"></span><span class="pline"></span>
           <span class="lpd">LPD8</span>
+          <div class="iconScreen"><canvas id="lfoview"></canvas></div>
           <button class="tog" data-tog="lsync">SYNC</button>
         </div>
         <div class="pbody">
-          <div class="seg wrap" data-seg="lwave"><button data-v="0">SIN</button><button data-v="1">TRI</button><button data-v="2">SAW</button><button data-v="3">SQR</button><button data-v="4">S&amp;H</button><button data-v="5">RND</button></div>
-          <div class="miniScreen short"><canvas id="lfoview"></canvas></div>
           <div class="lfoRow">
+            <div class="seg grid3" data-seg="lwave"><button data-v="0">SIN</button><button data-v="1">TRI</button><button data-v="2">SAW</button><button data-v="3">SQR</button><button data-v="4">S&amp;H</button><button data-v="5">RND</button></div>
             <div class="kgrid k2" data-knobs="lfo"></div>
             <div class="seg grid2" data-seg="ldest"><button data-v="0">PITCH</button><button data-v="1">FREQ</button><button data-v="2">AMP</button><button data-v="3">PAN</button></div>
           </div>
@@ -162,11 +161,14 @@
       <div class="field small" id="lenField" title="Lunghezza traccia (trascina)"><label>LEN</label><span id="trackLen">16</span></div>
       <span class="pline"></span>
       <span class="lpd">LPD8</span>
+      <button id="follow" class="cbtn" title="La pagina segue la riproduzione">Follow</button>
+      <button id="kbd" class="cbtn" title="I 16 tasti diventano una tastiera nella scala (Q)">Keys</button>
+      <button id="clearLocks" class="cbtn ghost" title="Cancella i p-lock (dello step selezionato o della traccia)">Clr lock</button>
+      <button id="clearTrack" class="cbtn ghost" title="Cancella tutti gli step della traccia">Clr trk</button>
+    </div>
+    <div class="trigRow">
+      <span class="trigLabel" id="trigLabel">TRIG<br>NUOVI</span>
       <div class="trigCells" id="trigCells"></div>
-      <button id="follow" class="cbtn small" title="La pagina segue la riproduzione">Follow</button>
-      <button id="kbd" class="cbtn small" title="I 16 tasti diventano una tastiera nella scala (Q)">Keys</button>
-      <button id="clearLocks" class="cbtn small ghost" title="Cancella i p-lock (dello step selezionato o della traccia)">Clr lock</button>
-      <button id="clearTrack" class="cbtn small ghost" title="Cancella tutti gli step della traccia">Clr trk</button>
     </div>
     <div class="steps" id="steps"></div>
     <div class="hint" id="hint">clic = trig · tieni premuto o ⇧clic = seleziona lo step per i p-lock · doppio clic su una manopola = reset · clic su un pannello = LPD8 · ⇧1–6 pannelli · P pattern · , . pattern prec/succ · I library · Q keys</div>
@@ -232,12 +234,12 @@
 <input type="file" id="fileProject" accept=".prisma,.json" hidden>
 <div id="toast"></div>
 
-<script src="js/params.js?v=4.7"></script>
-<script src="js/engine.js?v=4.7"></script>
-<script src="js/factory.js?v=4.7"></script>
-<script src="js/seq.js?v=4.7"></script>
-<script src="js/storage.js?v=4.7"></script>
-<script src="js/recorder.js?v=4.7"></script>
-<script src="js/app.js?v=4.7"></script>
+<script src="js/params.js?v=4.8"></script>
+<script src="js/engine.js?v=4.8"></script>
+<script src="js/factory.js?v=4.8"></script>
+<script src="js/seq.js?v=4.8"></script>
+<script src="js/storage.js?v=4.8"></script>
+<script src="js/recorder.js?v=4.8"></script>
+<script src="js/app.js?v=4.8"></script>
 </body>
 </html>
