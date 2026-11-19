@@ -278,3 +278,16 @@ body.dragging #library { display: flex !important; }
 .recgo.wide.on { background: var(--rec); color: #fff; }
 .asRow select { flex: 1 !important; }
 #autoDrawer .asInfo, #autoDrawer .rmeter { flex: none; }
+
+/* ---------- library più grande ---------- */
+#library { width: 400px; padding: 18px 20px; gap: 10px; }
+#library .poolHead { font-size: 12px; margin-top: 10px; }
+#library .drop { font-size: 13px; padding: 14px; }
+#library .drop small { font-size: 11px; }
+#library li { padding: 9px 10px; gap: 10px; border-radius: 8px; }
+#library li .ix { font-size: 12px; width: 24px; }
+#library li .nm { font-size: 15px; }
+#library li .meta { font-size: 13px; }
+#library li .aud { font-size: 14px; padding: 2px 8px; border-radius: 6px; }
+#library li .aud:hover { background: #2c2c2c; }
+.drawer { width: 380px; }
